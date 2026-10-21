@@ -266,13 +266,13 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
     image = Image.open(io.BytesIO(raw)).convert("RGBA")
     if movie_name:
         image = remove_non_title_text(image, movie_name)
-    # Make a 1280x720 landscape canvas without cropping the source poster/hero's head.
+    # Make a 650x700 portrait canvas without cropping the source poster/hero's head.
     source = image.convert("RGB")
-    background = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(24))
-    background = Image.blend(background, Image.new("RGB", (1280, 720), (12, 12, 12)), 0.28)
-    foreground = ImageOps.contain(source, (1280, 720), method=Image.Resampling.LANCZOS)
+    background = ImageOps.fit(source, (650, 700), method=Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(24))
+    background = Image.blend(background, Image.new("RGB", (650, 700), (12, 12, 12)), 0.28)
+    foreground = ImageOps.contain(source, (650, 700), method=Image.Resampling.LANCZOS)
     canvas = background.copy()
-    offset = ((1280 - foreground.width) // 2, (720 - foreground.height) // 2)
+    offset = ((650 - foreground.width) // 2, (700 - foreground.height) // 2)
     canvas.paste(foreground, offset)
     image = canvas.convert("RGBA")
     width, height = image.size
