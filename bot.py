@@ -152,11 +152,11 @@ def parse_caption(text: str):
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     return (
-        f"{title}\\n"
-        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\\n"
-        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\\n"
-        f"{literal_bold('Download / Watch using the buttons below')}\\n"
-        f"{literal_bold('══════════════════════')}\\n"
+        f"{title}\n"
+        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
+        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
+        f"{literal_bold('Download / Watch using the buttons below')}\n"
+        f"{literal_bold('══════════════════════')}\n"
         f"{render_footer(footer)}"
     )
 
