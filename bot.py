@@ -347,8 +347,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     movie_name, download_link, watch_link = parse_caption(message.caption or "")
     if not movie_name or not download_link:
-        await message.reply_text("❌ First line movie name, next line shortlink. Optional second link is used for Watch.", parse_mode=None)
-        return
+        manual = context.user_data.pop("pending_manual_photo", None)
+        if manual:
+            movie_name, download_link, watch_link = manual
+        else:
+            await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
+            return
     settings = get_user_settings(user.id)
     if settings["post_mode"] == "buttons":
         caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
@@ -386,9 +390,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     poster_url = await asyncio.to_thread(find_imdb_poster, movie_name)
     if poster_url:
+        context.user_data.pop("pending_manual_photo", None)
         context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
     else:
-        context.user_data["pending_dump_post"] = {"type": "text", "caption": output, "keyboard": keyboard}
+        context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
+        await message.reply_text(
+            "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\n"
+            "ನೀನು ಕಳುಹಿಸಿದ photoಗೆ ಇದೇ Movie Name, Shortlink ಮತ್ತು Stream Link ಸೇರಿಸುತ್ತೇನೆ.",
+            parse_mode=None,
+        )
+        return
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
