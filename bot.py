@@ -27,12 +27,12 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-STAR2 = "&#42;&#42;"
-
-
 def literal_bold(text: str) -> str:
-    # HTML entities render as literal ** characters in Telegram, not formatting.
-    return f"{STAR2}{html.escape(text)}{STAR2}"
+    """Render **wrapped content** as bold HTML; keep URLs clickable."""
+    safe_text = html.escape(text)
+    if URL_RE.fullmatch(text):
+        return f'<b><a href="{safe_text}">{safe_text}</a></b>'
+    return f"<b>{safe_text}</b>"
 
 
 def make_caption(movie_name: str, link: str) -> str:
