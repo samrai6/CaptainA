@@ -1,8 +1,12 @@
+import asyncio
 import html
+import json
 import logging
 import os
 import re
 import sqlite3
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -19,12 +23,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 HELP_TEXT = (
     "📸 Photo + caption format:\n\n"
+    "Text-only format (poster auto-search):\n"
     "First line: Movie name\n"
-    "Next lines: Download link, then optional Watch link\n\n"
+    "Second line: Shortlink\n"
+    "Third line: Stream link\n\n"
     "Example:\n"
-    "ಕೂಲಿ (2025) ಕನ್ನಡ ಡಬ್ (HD)\n"
-    "Download: https://example.com/download\n"
-    "Watch: https://example.com/watch\n\n"
+    "Devi 2 (2019)\n"
+    "https://example.com/shortlink\n"
+    "https://example.com/stream\n\n"
     "Use /normal for the regular caption or /buttons for inline buttons.\n"
     "Send this along with a photo or as text."
 )
@@ -190,21 +196,43 @@ def literal_bold(text: str) -> str:
     return f"<b>{safe_text}</b>"
 
 
-def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER) -> str:
+def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch_link: str = None) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     safe_link = html.escape(link)
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
         f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
-        f"{literal_bold(link)}\n"
-        f"{literal_bold(link)}\n"
-        f"{literal_bold(link)}\n\n"
+        f"{literal_bold('Download:')} {literal_bold(link)}\n"
+        f"{literal_bold('Watch:')} {literal_bold(watch_link or link)}\n\n"
         f"{literal_bold('𝗛𝗢𝗪')} {literal_bold('𝗧𝗢')} {literal_bold('𝗢𝗣𝗘𝗡')} {literal_bold('𝗟𝗶𝗡𝗞🔗👇👇')}\n"
         f"{literal_bold('https://t.me/Hwotoopenlink')}\n"
         f"{literal_bold('══════════════════════')}\n"
         f"{render_footer(footer)}"
     )
+
+
+def find_imdb_poster(movie_name: str):
+    """Look up a likely IMDb title poster without requiring an API key."""
+    try:
+        query = urllib.parse.quote(movie_name.strip())
+        request = urllib.request.Request(
+            f"https://v2.sg.media-imdb.com/suggestion/x/{query}.json",
+            headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        candidates = data.get("d", [])
+        normalized = re.sub(r"[^a-z0-9]", "", movie_name.lower())
+        candidates.sort(key=lambda item: 0 if re.sub(r"[^a-z0-9]", "", item.get("l", "").lower()) == normalized else 1)
+        for item in candidates:
+            image = item.get("i") or {}
+            poster = image.get("imageUrl")
+            if poster and item.get("id", "").startswith("tt"):
+                return poster
+    except Exception:
+        logging.warning("IMDb poster lookup failed for %r", movie_name, exc_info=True)
+    return None
 
 
 def parse_caption(text: str):
@@ -326,7 +354,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
-        caption = make_caption(movie_name, download_link, get_footer(user.id))
+        caption = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
         keyboard = None
     context.user_data["pending_dump_post"] = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
@@ -354,9 +382,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
-        output = make_caption(movie_name, download_link, get_footer(user.id))
+        output = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
         keyboard = None
-    context.user_data["pending_dump_post"] = {"type": "text", "caption": output, "keyboard": keyboard}
+    poster_url = await asyncio.to_thread(find_imdb_poster, movie_name)
+    if poster_url:
+        context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
+    else:
+        context.user_data["pending_dump_post"] = {"type": "text", "caption": output, "keyboard": keyboard}
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
@@ -397,7 +429,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if pending["type"] == "photo":
                 await context.bot.send_photo(
                     chat_id=user.id,
-                    photo=pending["file_id"],
+                    photo=pending.get("file_id") or pending.get("poster_url"),
                     caption=pending["caption"],
                     parse_mode=ParseMode.HTML,
                     reply_markup=pending.get("keyboard"),
@@ -428,7 +460,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             if pending["type"] == "photo":
-                await context.bot.send_photo(chat_id=channel_id, photo=pending["file_id"], caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+                await context.bot.send_photo(chat_id=channel_id, photo=pending.get("file_id") or pending.get("poster_url"), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
             else:
                 await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
         except Exception:
