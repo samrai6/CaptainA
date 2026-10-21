@@ -1188,7 +1188,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if pending["type"] == "photo":
                 await context.bot.send_photo(
                     chat_id=user.id,
-                    photo=pending.get("file_id") or pending.get("poster_url"),
+                    photo=poster_input(pending),
                     caption=pending["caption"],
                     parse_mode=ParseMode.HTML,
                     reply_markup=pending.get("keyboard"),
@@ -1219,7 +1219,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             if pending["type"] == "photo":
-                await context.bot.send_photo(chat_id=channel_id, photo=pending.get("file_id") or pending.get("poster_url"), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+                await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
             else:
                 await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
         except Exception:
