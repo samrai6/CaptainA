@@ -2,7 +2,7 @@ import logging
 import os
 import re
 
-from telegram import Update
+from telegram import ReplyParameters, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(
@@ -79,10 +79,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     movie_name, link = parse_caption(message.caption or "")
+    reply_parameters = ReplyParameters(message_id=message.message_id)
     if not movie_name or not link:
         await message.reply_text(
             "❌ Caption format sari illa. First line movie name, next line file link haaki.",
             parse_mode=None,
+            reply_parameters=reply_parameters,
         )
         return
 
@@ -91,6 +93,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo=message.photo[-1].file_id,
         caption=output_caption,
         parse_mode=None,
+        reply_parameters=reply_parameters,
     )
 
 
@@ -103,7 +106,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not movie_name or not link:
         return
 
-    await message.reply_text(make_caption(movie_name, link), parse_mode=None)
+    await message.reply_text(
+        make_caption(movie_name, link),
+        parse_mode=None,
+        reply_parameters=ReplyParameters(message_id=message.message_id),
+    )
 
 
 def main():
