@@ -72,7 +72,7 @@ def init_footer_db():
             if "button_footer" not in existing_footer_columns:
                 conn.execute("ALTER TABLE user_footers ADD COLUMN button_footer TEXT NOT NULL DEFAULT '🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates'")
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '⬇️ Download', watch_text TEXT NOT NULL DEFAULT '▶️ Watch Online', updates_text TEXT NOT NULL DEFAULT '📢 Join Updates Channel', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
+                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
@@ -152,9 +152,9 @@ def reset_button_footer(user_id: int):
 
 
 DEFAULT_BUTTON_SETTINGS = {
-    "download_text": "⬇️ Download",
-    "watch_text": "▶️ Watch Online",
-    "updates_text": "📢 Join Updates Channel",
+    "download_text": "📥 DOWNLOAD",
+    "watch_text": "▶️ WATCH ONLINE",
+    "updates_text": "📢 UPDATES CHANNEL",
     "updates_url": "https://t.me/SKR_updates",
     "dump_channel_id": "",
 }
@@ -341,15 +341,14 @@ def parse_caption(text: str):
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
-    # Button Mode footer: remove duplicate identical lines, without changing Normal Mode.
+    # Keep Button Mode caption short and English-only; buttons hold the actual links.
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     button_footer = render_footer("\n".join(footer_lines))
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{literal_bold('📂 FILES / ಲಿಂಕ್')}\n"
-        f"{literal_bold('👇🏻 ಕೆಳಗಿನ ಬಟನ್ ಆಯ್ಕೆಮಾಡಿ')}\n"
+        f"{literal_bold('📂 FILES LINK 👇🏻')}\n"
         f"{literal_bold('══════════════════════')}\n"
         f"{button_footer}"
     )
