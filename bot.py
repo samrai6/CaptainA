@@ -6,7 +6,7 @@ import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
-from telegram import ReplyParameters, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
@@ -20,11 +20,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 HELP_TEXT = (
     "📸 Photo + caption format:\n\n"
     "First line: Movie name\n"
-    "Second line: File link\n\n"
+    "Next lines: Download link, then optional Watch link\n\n"
     "Example:\n"
     "ಕೂಲಿ (2025) ಕನ್ನಡ ಡಬ್ (HD)\n"
-    "https://example.com/movie\n\n"
-    "Send this along with a photo."
+    "Download: https://example.com/download\n"
+    "Watch: https://example.com/watch\n\n"
+    "Use /normal for the regular caption or /buttons for inline buttons.\n"
+    "Send this along with a photo or as text."
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -131,17 +133,44 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER) -> st
 def parse_caption(text: str):
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     if len(lines) < 2:
-        return None, None
+        return None, None, None
     movie_name = lines[0]
-    link = None
+    links = []
     for line in lines[1:]:
         match = URL_RE.search(line)
         if match:
             link = match.group(0).rstrip(".,);]")
-            break
-    if not movie_name or not link:
-        return None, None
-    return movie_name, link
+            if link not in links:
+                links.append(link)
+    if not movie_name or not links:
+        return None, None, None
+    download_link = links[0]
+    watch_link = links[1] if len(links) > 1 else links[0]
+    return movie_name, download_link, watch_link
+
+
+def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
+    title = " ".join(literal_bold(word) for word in movie_name.split())
+    return (
+        f"{title}\\n"
+        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\\n"
+        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\\n"
+        f"{literal_bold('Download / Watch using the buttons below')}\\n"
+        f"{literal_bold('══════════════════════')}\\n"
+        f"{render_footer(footer)}"
+    )
+
+
+def make_buttons(download_link: str, watch_link: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⬇️ Download", url=download_link),
+            InlineKeyboardButton("▶️ Watch Online", url=watch_link),
+        ],
+        [
+            InlineKeyboardButton("📢 Join Updates Channel", url="https://t.me/SKR_updates"),
+        ],
+    ])
 
 
 async def setfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -202,20 +231,29 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.photo:
         return
 
-    movie_name, link = parse_caption(message.caption or "")
+    movie_name, download_link, watch_link = parse_caption(message.caption or "")
     reply_parameters = ReplyParameters(message_id=message.message_id)
-    if not movie_name or not link:
+    if not movie_name or not download_link or not watch_link:
         await message.reply_text(
-            "❌ Caption format sari illa. First line movie name, next line file link haaki.",
+            "❌ Caption format sari illa. First line movie name, next line download link; optional second link Watch link.",
             parse_mode=None,
             reply_parameters=reply_parameters,
         )
         return
 
+    user_id = update.effective_user.id if update.effective_user else 0
+    if context.user_data.get("post_mode", "normal") == "buttons":
+        caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
+        keyboard = make_buttons(download_link, watch_link)
+    else:
+        caption = make_caption(movie_name, download_link, get_footer(user_id))
+        keyboard = None
+
     await message.reply_photo(
         photo=message.photo[-1].file_id,
-        caption=make_caption(movie_name, link, get_footer(update.effective_user.id if update.effective_user else 0)),
+        caption=caption,
         parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
         reply_parameters=reply_parameters,
     )
 
@@ -225,15 +263,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
-    movie_name, link = parse_caption(message.text)
-    if not movie_name or not link:
+    movie_name, download_link, watch_link = parse_caption(message.text)
+    if not movie_name or not download_link or not watch_link:
         return
 
+    user_id = update.effective_user.id if update.effective_user else 0
+    if context.user_data.get("post_mode", "normal") == "buttons":
+        output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
+        keyboard = make_buttons(download_link, watch_link)
+    else:
+        output = make_caption(movie_name, download_link, get_footer(user_id))
+        keyboard = None
+
     await message.reply_text(
-        make_caption(movie_name, link, get_footer(update.effective_user.id if update.effective_user else 0)),
+        output,
         parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
         reply_parameters=ReplyParameters(message_id=message.message_id),
     )
+
+
+async def normal_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_message:
+        context.user_data["post_mode"] = "normal"
+        await update.effective_message.reply_text(
+            "✅ Normal caption mode active. Use /buttons to switch to inline buttons.",
+            parse_mode=None,
+        )
+
+
+async def buttons_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_message:
+        context.user_data["post_mode"] = "buttons"
+        await update.effective_message.reply_text(
+            "✅ Buttons mode active. Add two links after the movie name: first Download, second Watch Online. If you provide only one link, both buttons use that link. Telegram does not let bots set individual inline-button background colours.",
+            parse_mode=None,
+        )
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -265,6 +330,8 @@ def main():
     app.add_handler(CommandHandler("footer", showfooter))
     app.add_handler(CommandHandler("resetfooter", resetfooter))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("normal", normal_mode))
+    app.add_handler(CommandHandler("buttons", buttons_mode))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
