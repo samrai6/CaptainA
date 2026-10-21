@@ -227,7 +227,7 @@ def save_setting(user_id: int, key: str, value: str):
 
 
 def save_post_mode(user_id: int, mode: str):
-    if mode not in {"normal", "buttons", "multi"}:
+    if mode not in {"normal", "buttons", "multi", "postlink"}:
         raise ValueError("Unsupported post mode")
     save_setting(user_id, "post_mode", mode)
 
@@ -343,6 +343,32 @@ def find_imdb_poster(movie_name: str):
     except Exception:
         logging.warning("IMDb poster lookup failed for %r", movie_name, exc_info=True)
     return None
+
+
+def parse_postlink_caption(text: str):
+    text = (text or "").replace("\\n", "\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    title = lines[0].replace("**", "").strip() if lines else ""
+    links = []
+    for line in lines[1:]:
+        for match in URL_RE.finditer(line):
+            link = match.group(0).strip("*").rstrip(".,);]*_")
+            if link and link not in links:
+                links.append(link)
+    if not title or not links:
+        return None, [], "Join fast & Please Wait 👆👍✅❤️"
+    links = (links + [links[-1]] * 3)[:3]
+    final_line = "Join fast & Please Wait 👆👍✅❤️"
+    for line in reversed(lines[1:]):
+        if not URL_RE.search(line) and line.strip():
+            final_line = line.replace("**", "").strip()
+            break
+    return title, links, final_line
+
+
+def make_postlink_caption(title: str, links: list, final_line: str, footer: str) -> str:
+    return (literal_bold(title) + "\n" + "\n".join(literal_bold(link) for link in links)
+            + "\n\n" + literal_bold(final_line) + "\n" + render_footer(footer))
 
 
 def parse_caption(text: str):
@@ -525,10 +551,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
         return
     settings = get_user_settings(update.effective_user.id)
-    mode_label = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode"}.get(settings["post_mode"], "Normal Mode")
+    mode_label = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink": "Postlink Mode"}.get(settings["post_mode"], "Normal Mode")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
         [InlineKeyboardButton("🎬 Multi Button Mode", callback_data="mode:multi")],
+        [InlineKeyboardButton("🔗 Postlink Mode", callback_data="mode:postlink")],
         [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
@@ -550,16 +577,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.photo or not user:
         return
-    movie_name, download_link, watch_link = parse_caption(message.caption or "")
-    if not movie_name or not download_link:
-        manual = context.user_data.pop("pending_manual_photo", None)
-        if manual:
-            movie_name, download_link, watch_link = manual
-        else:
-            await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
-            return
     settings = get_user_settings(user.id)
-    if settings["post_mode"] == "multi":
+    if settings["post_mode"] == "postlink":
+        movie_name, postlink_links, final_line = parse_postlink_caption(message.caption or "")
+        if not movie_name or not postlink_links:
+            await message.reply_text("❌ Postlink Mode: photo ಜೊತೆಗೆ captionನಲ್ಲಿ Movie title ಮತ್ತು Telegram invite link ಕಳುಹಿಸು.", parse_mode=None)
+            return
+        caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
+        keyboard = None
+    else:
+        movie_name, download_link, watch_link = parse_caption(message.caption or "")
+        if not movie_name or not download_link:
+            manual = context.user_data.pop("pending_manual_photo", None)
+            if manual:
+                movie_name, download_link, watch_link = manual
+            else:
+                await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
+                return
+    if settings["post_mode"] == "postlink":
+        pass
+    elif settings["post_mode"] == "multi":
         movie_name, quality_links = parse_multi_caption(message.caption or "")
         if not movie_name or not quality_links:
             manual = context.user_data.pop("pending_manual_multi_photo", None)
@@ -586,6 +623,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.text or not user:
+        return
+    if get_post_mode(user.id) == "postlink" and not context.user_data.get("awaiting_dump_channel"):
+        await message.reply_text("🔗 Postlink Modeನಲ್ಲಿ IMDb search ಇಲ್ಲ. Photo ಜೊತೆಗೆ movie title ಮತ್ತು Telegram invite link ಅನ್ನು captionನಲ್ಲಿ ಹಾಕು.", parse_mode=None)
         return
     if context.user_data.get("awaiting_dump_channel"):
         channel_id = message.text.strip()
@@ -689,9 +729,9 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data or ""
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
-        if mode in {"normal", "buttons", "multi"}:
+        if mode in {"normal", "buttons", "multi", "postlink"}:
             save_post_mode(user.id, mode)
-            mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode"}[mode]
+            mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink": "Postlink Mode"}[mode]
             await query.edit_message_text("✅ Mode changed to " + mode_name + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
     if data == "settings:dump":
