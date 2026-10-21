@@ -124,7 +124,7 @@ async def setfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(footer) > 1000:
         await message.reply_text("Footer 1000 characters olage irabeku.", parse_mode=None)
         return
-    save_footer(user.id, footer)
+    save_footer(user.id, footer.replace("\\n", "\n"))
     await message.reply_text(
         "✅ Nimma footer save aagide. Idu nimma captions-ge maatra apply aagutte.",
         parse_mode=None,
