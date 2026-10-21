@@ -40,3 +40,15 @@ python bot.py
 ```
 
 The bot will not run until a valid `BOT_TOKEN` is configured and the service is deployed.
+
+## Google Images / IMDb poster selection and watermark
+
+No poster API key is required. The first line of a text submission is used only as the poster search title (for example, `KGF 2018`); the second line begins the caption title, followed by the movie links. The bot searches Google Images and IMDb and displays available poster choices as inline buttons. After selecting one, it adds a white watermark before showing the existing dump confirmation flow. Google may change its search page, so the no-API Google Images lookup is not guaranteed to work permanently.
+
+Watermark commands:
+- `/watermark` — show current settings and help
+- `/setwatermark @SKR_updates` — change watermark text
+- `/setwatermarksize 28` — change font size (12–100)
+- `/setwatermarkposition bottom-right` — choose `bottom-right`, `bottom-left`, `top-right`, `top-left`, or `center`
+
+Pillow is installed through `requirements.txt` for image processing. Google Images and IMDb are used without an API key.
