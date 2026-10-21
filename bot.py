@@ -8,7 +8,7 @@ from threading import Thread
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -63,7 +63,7 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
             )
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '⬇️ Download', watch_text TEXT NOT NULL DEFAULT '▶️ Watch Online', updates_text TEXT NOT NULL DEFAULT '📢 Join Updates Channel', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates')"
+                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '⬇️ Download', watch_text TEXT NOT NULL DEFAULT '▶️ Watch Online', updates_text TEXT NOT NULL DEFAULT '📢 Join Updates Channel', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
@@ -71,6 +71,7 @@ def init_footer_db():
                 ("watch_text", "TEXT NOT NULL DEFAULT '▶️ Watch Online'"),
                 ("updates_text", "TEXT NOT NULL DEFAULT '📢 Join Updates Channel'"),
                 ("updates_url", "TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates'"),
+                ("dump_channel_id", "TEXT NOT NULL DEFAULT ''"),
             ]:
                 if column not in existing_columns:
                     conn.execute(f"ALTER TABLE user_settings ADD COLUMN {column} {definition}")
@@ -117,6 +118,7 @@ DEFAULT_BUTTON_SETTINGS = {
     "watch_text": "▶️ Watch Online",
     "updates_text": "📢 Join Updates Channel",
     "updates_url": "https://t.me/SKR_updates",
+    "dump_channel_id": "",
 }
 
 
@@ -130,11 +132,11 @@ def get_user_settings(user_id: int) -> dict:
         return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         row = conn.execute(
-            "SELECT post_mode, download_text, watch_text, updates_text, updates_url FROM user_settings WHERE user_id = ?",
+            "SELECT post_mode, download_text, watch_text, updates_text, updates_url, dump_channel_id FROM user_settings WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if row:
-        keys = ["post_mode", "download_text", "watch_text", "updates_text", "updates_url"]
+        keys = ["post_mode", "download_text", "watch_text", "updates_text", "updates_url", "dump_channel_id"]
         settings.update(dict(zip(keys, row)))
     return settings
 
@@ -152,13 +154,20 @@ def save_setting(user_id: int, key: str, value: str):
         settings = get_user_settings(user_id)
         settings[key] = value
         conn.execute(
-            "INSERT INTO user_settings (user_id, post_mode, download_text, watch_text, updates_text, updates_url) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET "
+            "INSERT INTO user_settings (user_id, post_mode, download_text, watch_text, updates_text, updates_url, dump_channel_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET "
             "post_mode=excluded.post_mode, download_text=excluded.download_text, "
-            "watch_text=excluded.watch_text, updates_text=excluded.updates_text, updates_url=excluded.updates_url",
+            "watch_text=excluded.watch_text, updates_text=excluded.updates_text, updates_url=excluded.updates_url, "
+            "dump_channel_id=excluded.dump_channel_id",
             (user_id, settings["post_mode"], settings["download_text"], settings["watch_text"],
-             settings["updates_text"], settings["updates_url"]),
+             settings["updates_text"], settings["updates_url"], settings["dump_channel_id"]),
         )
+
+
+def save_post_mode(user_id: int, mode: str):
+    if mode not in {"normal", "buttons"}:
+        raise ValueError("Unsupported post mode")
+    save_setting(user_id, "post_mode", mode)
 
 
 def get_post_mode(user_id: int) -> str:
@@ -282,11 +291,21 @@ async def resetfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        await update.message.reply_text(
-            "Welcome to SKR Photo Caption Bot!\n\n" + HELP_TEXT,
-            parse_mode=None,
-        )
+    if not update.message or not update.effective_user:
+        return
+    settings = get_user_settings(update.effective_user.id)
+    mode_label = "Normal Mode" if settings["post_mode"] == "normal" else "Button Mode"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
+        [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
+        [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons"), InlineKeyboardButton("✍️ Footer Settings", callback_data="settings:footer")],
+    ])
+    dump_id = settings.get("dump_channel_id") or "Not set"
+    await update.message.reply_text(
+        f"⚜️ SKR Photo Caption Bot\n\nCurrent Mode: {mode_label}\nDump Channel ID: {dump_id}\n\nChoose an option below.",
+        reply_markup=keyboard,
+        parse_mode=None,
+    )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,60 +314,100 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    if not message or not message.photo:
+    message, user = update.effective_message, update.effective_user
+    if not message or not message.photo or not user:
         return
-
     movie_name, download_link, watch_link = parse_caption(message.caption or "")
-    reply_parameters = ReplyParameters(message_id=message.message_id)
-    if not movie_name or not download_link or not watch_link:
-        await message.reply_text(
-            "❌ Caption format sari illa. First line movie name, next line download link; optional second link Watch link.",
-            parse_mode=None,
-            reply_parameters=reply_parameters,
-        )
+    if not movie_name or not download_link:
+        await message.reply_text("❌ First line movie name, next line shortlink. Optional second link is used for Watch.", parse_mode=None)
         return
-
-    user_id = update.effective_user.id if update.effective_user else 0
-    if get_post_mode(user_id) == "buttons":
-        caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
-        keyboard = make_buttons(download_link, watch_link, get_user_settings(user_id))
+    settings = get_user_settings(user.id)
+    if settings["post_mode"] == "buttons":
+        caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
+        keyboard = make_buttons(download_link, watch_link, settings)
     else:
-        caption = make_caption(movie_name, download_link, get_footer(user_id))
+        caption = make_caption(movie_name, download_link, get_footer(user.id))
         keyboard = None
-
-    await message.reply_photo(
-        photo=message.photo[-1].file_id,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-        reply_parameters=reply_parameters,
-    )
+    context.user_data["pending_dump_post"] = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
+    confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
+    await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    if not message or not message.text:
+    message, user = update.effective_message, update.effective_user
+    if not message or not message.text or not user:
         return
-
+    if context.user_data.get("awaiting_dump_channel"):
+        channel_id = message.text.strip()
+        if not re.fullmatch(r"-?\d+", channel_id):
+            await message.reply_text("❌ Channel ID numeric aagirabeku. Matte try maadi.", parse_mode=None)
+            return
+        save_setting(user.id, "dump_channel_id", channel_id)
+        context.user_data.pop("awaiting_dump_channel", None)
+        await message.reply_text("✅ Dump Channel ID save aagide. Bot channel admin aagirabeku.", parse_mode=None)
+        return
     movie_name, download_link, watch_link = parse_caption(message.text)
-    if not movie_name or not download_link or not watch_link:
+    if not movie_name or not download_link:
         return
-
-    user_id = update.effective_user.id if update.effective_user else 0
-    if get_post_mode(user_id) == "buttons":
-        output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
-        keyboard = make_buttons(download_link, watch_link, get_user_settings(user_id))
+    settings = get_user_settings(user.id)
+    if settings["post_mode"] == "buttons":
+        output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
+        keyboard = make_buttons(download_link, watch_link, settings)
     else:
-        output = make_caption(movie_name, download_link, get_footer(user_id))
+        output = make_caption(movie_name, download_link, get_footer(user.id))
         keyboard = None
+    context.user_data["pending_dump_post"] = {"type": "text", "caption": output, "keyboard": keyboard}
+    confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
+    await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
-    await message.reply_text(
-        output,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-        reply_parameters=ReplyParameters(message_id=message.message_id),
-    )
+
+async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query, user = update.callback_query, update.effective_user
+    if not query or not user:
+        return
+    await query.answer()
+    data = query.data or ""
+    if data.startswith("mode:"):
+        mode = data.split(":", 1)[1]
+        if mode in {"normal", "buttons"}:
+            save_post_mode(user.id, mode)
+            await query.edit_message_text("✅ Mode changed to " + ("Normal Mode" if mode == "normal" else "Button Mode") + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
+        return
+    if data == "settings:dump":
+        context.user_data["awaiting_dump_channel"] = True
+        await query.message.reply_text("Dump Channel ID ಕಳುಹಿಸು. Channel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು.", parse_mode=None)
+        return
+    if data == "settings:buttons":
+        await query.message.reply_text("Button settings commands:\n/buttonsettings\n/setdownloadtext <name>\n/setwatchtext <name>\n/setupdatesbutton <name> | <link>", parse_mode=None)
+        return
+    if data == "settings:footer":
+        await query.message.reply_text("Footer commands:\n/footer\n/setfooter <footer text>\n/resetfooter", parse_mode=None)
+        return
+    if data == "dump:no":
+        context.user_data.pop("pending_dump_post", None)
+        await query.edit_message_text("❌ Cancelled. Dump ಮಾಡಿಲ್ಲ.")
+        return
+    if data == "dump:yes":
+        pending = context.user_data.get("pending_dump_post")
+        channel_id = get_user_settings(user.id).get("dump_channel_id", "").strip()
+        if not pending:
+            await query.edit_message_text("⚠️ Pending post ಇಲ್ಲ. ಮತ್ತೆ post ಕಳುಹಿಸು.")
+            return
+        if not channel_id:
+            await query.edit_message_text("⚠️ Dump Channel ID set ಆಗಿಲ್ಲ. /start → Set Dump Channel ID ಆಯ್ಕೆಮಾಡು.")
+            return
+        try:
+            if pending["type"] == "photo":
+                await context.bot.send_photo(chat_id=channel_id, photo=pending["file_id"], caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+            else:
+                await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+        except Exception:
+            logging.exception("Failed to dump post to configured channel")
+            await query.edit_message_text("❌ Dump ಆಗಲಿಲ್ಲ. Channel ID ಸರಿಯಿದೆಯೇ ಮತ್ತು bot channel admin ಆಗಿದೆಯೇ ಪರಿಶೀಲಿಸು.")
+            context.user_data.pop("pending_dump_post", None)
+            return
+        context.user_data.pop("pending_dump_post", None)
+        await query.edit_message_text("✅ Post Dump Channel‌ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.")
 
 
 async def normal_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -461,6 +520,7 @@ def main():
     start_health_server()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_callbacks))
     app.add_handler(CommandHandler("setfooter", setfooter))
     app.add_handler(CommandHandler("footer", showfooter))
     app.add_handler(CommandHandler("resetfooter", resetfooter))
