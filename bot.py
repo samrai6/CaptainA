@@ -41,10 +41,11 @@ MONGO_URI = (
 ).strip()
 _mongo_client = None
 _mongo_footers = None
+_mongo_settings = None
 
 
 def init_footer_db():
-    global _mongo_client, _mongo_footers
+    global _mongo_client, _mongo_footers, _mongo_settings
     if MONGO_URI:
         from pymongo import MongoClient
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
@@ -52,12 +53,17 @@ def init_footer_db():
         db_name = os.getenv("MONGODB_DATABASE", "skr_photo_caption_bot")
         collection_name = os.getenv("MONGODB_FOOTER_COLLECTION", "user_footers")
         _mongo_footers = _mongo_client[db_name][collection_name]
+        _mongo_settings = _mongo_client[db_name][os.getenv("MONGODB_SETTINGS_COLLECTION", "user_settings")]
         _mongo_footers.create_index("user_id", unique=True)
+        _mongo_settings.create_index("user_id", unique=True)
         logging.info("Footer storage connected to MongoDB database %s", db_name)
     else:
         with sqlite3.connect(FOOTER_DB_PATH) as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal')"
             )
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
@@ -95,6 +101,31 @@ def reset_footer(user_id: int):
         return
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         conn.execute("DELETE FROM user_footers WHERE user_id = ?", (user_id,))
+
+
+def get_post_mode(user_id: int) -> str:
+    if _mongo_settings is not None:
+        row = _mongo_settings.find_one({"user_id": user_id}, {"post_mode": 1})
+        return row.get("post_mode", "normal") if row else "normal"
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT post_mode FROM user_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return row[0] if row else "normal"
+
+
+def save_post_mode(user_id: int, mode: str):
+    if _mongo_settings is not None:
+        _mongo_settings.update_one(
+            {"user_id": user_id}, {"$set": {"post_mode": mode}}, upsert=True
+        )
+        return
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO user_settings (user_id, post_mode) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET post_mode = excluded.post_mode",
+            (user_id, mode),
+        )
 
 
 def render_footer(footer: str) -> str:
@@ -242,7 +273,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = update.effective_user.id if update.effective_user else 0
-    if context.user_data.get("post_mode", "normal") == "buttons":
+    if get_post_mode(user_id) == "buttons":
         caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
         keyboard = make_buttons(download_link, watch_link)
     else:
@@ -285,18 +316,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def normal_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
-        context.user_data["post_mode"] = "normal"
+        user = update.effective_user
+        if not user:
+            return
+        save_post_mode(user.id, "normal")
         await update.effective_message.reply_text(
-            "✅ Normal caption mode active. Use /buttons to switch to inline buttons.",
+            "✅ Normal post mode saved. Movie name + short link + stream link ಕಳುಹಿಸಿದರೆ ಈ format automatic ಆಗಿ ಬರುತ್ತದೆ.",
             parse_mode=None,
         )
 
 
 async def buttons_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
-        context.user_data["post_mode"] = "buttons"
+        user = update.effective_user
+        if not user:
+            return
+        save_post_mode(user.id, "buttons")
         await update.effective_message.reply_text(
-            "✅ Buttons mode active. Add two links after the movie name: first Download, second Watch Online. If you provide only one link, both buttons use that link. Telegram does not let bots set individual inline-button background colours.",
+            "✅ Buttons post mode saved. Movie name + short link + stream link ಕಳುಹಿಸಿದರೆ Download/Watch buttons automatic ಆಗಿ ಬರುತ್ತವೆ. ಈ setting restart ಆದರೂ ಉಳಿಯುತ್ತದೆ. Telegram button colours ಅನ್ನು ಪ್ರತ್ಯೇಕವಾಗಿ ಸೆಟ್ ಮಾಡಲು ಬಿಡುವುದಿಲ್ಲ.",
             parse_mode=None,
         )
 
