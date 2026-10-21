@@ -14,7 +14,7 @@ from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -101,7 +101,7 @@ def init_footer_db():
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
-DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ 𝑺𝑲𝑹 𝑼𝑷𝑫𝑨𝑻𝑬𝑺 ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1}
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1}
 
 
 def get_poster_settings(user_id: int) -> dict:
@@ -112,7 +112,7 @@ def get_poster_settings(user_id: int) -> dict:
             settings.update({key: row[key] for key in settings if key in row})
             # Migrate the old built-in watermark to the selected cinematic style.
             if settings["watermark_text"] == "@SKR_updates":
-                settings["watermark_text"] = "★ 𝑺𝑲𝑹 𝑼𝑷𝑫𝑨𝑻𝑬𝑺 ★"
+                settings["watermark_text"] = "★ SKR UPDATES ★"
                 _mongo_poster_settings.update_one({"user_id": user_id}, {"$set": {"watermark_text": settings["watermark_text"]}})
         return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
@@ -266,13 +266,15 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
     image = Image.open(io.BytesIO(raw)).convert("RGBA")
     if movie_name:
         image = remove_non_title_text(image, movie_name)
-    # Standardize every generated poster to 1280x720 (16:9 landscape).
-    image = ImageOps.fit(
-        image.convert("RGB").convert("RGBA"),
-        (1280, 720),
-        method=Image.Resampling.LANCZOS,
-        centering=(0.5, 0.5),
-    )
+    # Make a 1280x720 landscape canvas without cropping the source poster/hero's head.
+    source = image.convert("RGB")
+    background = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(24))
+    background = Image.blend(background, Image.new("RGB", (1280, 720), (12, 12, 12)), 0.28)
+    foreground = ImageOps.contain(source, (1280, 720), method=Image.Resampling.LANCZOS)
+    canvas = background.copy()
+    offset = ((1280 - foreground.width) // 2, (720 - foreground.height) // 2)
+    canvas.paste(foreground, offset)
+    image = canvas.convert("RGBA")
     width, height = image.size
     draw = ImageDraw.Draw(image, "RGBA")
     font_size = max(12, min(int(settings.get("watermark_size", 28)), max(12, width // 8)))
