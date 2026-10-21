@@ -213,6 +213,8 @@ def get_post_mode(user_id: int) -> str:
 
 
 def render_footer(footer: str) -> str:
+    # Support both real newlines and the literal "\\n" saved by older Button Mode defaults.
+    footer = footer.replace("\\n", "\n")
     rendered = []
     for line in footer.splitlines():
         safe = html.escape(line)
@@ -340,6 +342,7 @@ def parse_caption(text: str):
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     # Button Mode footer: remove duplicate identical lines, without changing Normal Mode.
+    footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     button_footer = render_footer("\n".join(footer_lines))
     return (
