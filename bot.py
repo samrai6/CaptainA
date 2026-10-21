@@ -197,8 +197,8 @@ def get_post_mode(user_id: int) -> str:
 
 
 def render_footer(footer: str) -> str:
-    # Support both real newlines and the literal "\\n" saved by older Button Mode defaults.
-    footer = footer.replace("\\n", "\n")
+    # Support real/literal newlines and hide Markdown bold markers in footer text.
+    footer = footer.replace("\\n", "\n").replace("**", "")
     rendered = []
     for line in footer.splitlines():
         safe = html.escape(line)
@@ -207,10 +207,11 @@ def render_footer(footer: str) -> str:
         rendered.append(f"<b>{safe}</b>")
     return "\n".join(rendered)
 def literal_bold(text: str) -> str:
-    """Render **wrapped content** as bold HTML; keep URLs clickable."""
+    """Render content as bold HTML; hide Markdown ** markers and keep URLs clickable."""
+    text = text.replace("**", "")
     safe_text = html.escape(text)
     if URL_RE.fullmatch(text):
-        return f'<b><a href="{safe_text}">{safe_text}</a></b>'
+        return f'<b><a href="{html.escape(text, quote=True)}">{safe_text}</a></b>'
     return f"<b>{safe_text}</b>"
 
 
@@ -313,7 +314,7 @@ def parse_caption(text: str):
     for line in lines[1:]:
         match = URL_RE.search(line)
         if match:
-            link = match.group(0).rstrip(".,);]")
+            link = match.group(0).strip("*").rstrip(".,);]*_")
             if link not in links:
                 links.append(link)
     if not movie_name or not links:
