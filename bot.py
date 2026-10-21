@@ -1045,18 +1045,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
     if pending["type"] == "photo":
-        if pending.get("watermarked_poster"):
-            # Telegram send_photo recompresses images. Send watermarked PNG as a document
-            # so the processed image is delivered losslessly at its current resolution.
-            await context.bot.send_document(
-                chat_id=channel_id,
-                document=poster_input(pending),
-                caption=pending["caption"],
-                parse_mode=ParseMode.HTML,
-                reply_markup=pending.get("keyboard"),
-            )
-        else:
-            await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+        # Always send posters as Telegram photos so they display inline with the caption,
+        # rather than as downloadable documents. Keep the processed image at high quality.
+        await context.bot.send_photo(
+            chat_id=channel_id,
+            photo=poster_input(pending),
+            caption=pending["caption"],
+            parse_mode=ParseMode.HTML,
+            reply_markup=pending.get("keyboard"),
+        )
     else:
         await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
 
