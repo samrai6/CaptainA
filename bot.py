@@ -197,17 +197,18 @@ def literal_bold(text: str) -> str:
 
 
 def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch_link: str = None) -> str:
+    """Build the user's fixed Normal Mode caption; keep the supplied link layout."""
     title = " ".join(literal_bold(word) for word in movie_name.split())
-    safe_link = html.escape(link)
+    # Normal Mode intentionally repeats the shortlink three times, matching the user's sample.
+    repeated_links = "\\n".join(literal_bold(link) for _ in range(3))
     return (
-        f"{title}\n"
-        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
-        f"{literal_bold('Download:')} {literal_bold(link)}\n"
-        f"{literal_bold('Watch:')} {literal_bold(watch_link or link)}\n\n"
-        f"{literal_bold('𝗛𝗢𝗪')} {literal_bold('𝗧𝗢')} {literal_bold('𝗢𝗣𝗘𝗡')} {literal_bold('𝗟𝗶𝗡𝗞🔗👇👇')}\n"
-        f"{literal_bold('https://t.me/Hwotoopenlink')}\n"
-        f"{literal_bold('══════════════════════')}\n"
+        f"{title}\\n"
+        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\\n"
+        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\\n"
+        f"{repeated_links}\\n\\n"
+        f"{literal_bold('𝗛𝗢𝗪')} {literal_bold('𝗧𝗢')} {literal_bold('𝗢𝗣𝗘𝗡')} {literal_bold('𝗟𝗶𝗡𝗞🔗👇👇')}\\n"
+        f"{literal_bold('https://t.me/Hwotoopenlink')}\\n"
+        f"{literal_bold('══════════════════════')}\\n"
         f"{render_footer(footer)}"
     )
 
