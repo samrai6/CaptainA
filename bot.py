@@ -385,7 +385,26 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "dump:no":
         context.user_data.pop("pending_dump_post", None)
-        await query.edit_message_text("❌ Cancelled. Dump ಮಾಡಿಲ್ಲ.")
+        await query.edit_message_text("❌ Dump Cancelled. Channel‌ಗೆ ಕಳುಹಿಸಿಲ್ಲ.")
+        # Telegram bots cannot force-open the user's PM screen, but can send a
+        # private message so the user can continue from the bot chat.
+        mode_label = "Normal Mode" if get_user_settings(user.id)["post_mode"] == "normal" else "Button Mode"
+        settings = get_user_settings(user.id)
+        dump_id = settings.get("dump_channel_id") or "Not set"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
+            [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
+            [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons"), InlineKeyboardButton("✍️ Footer Settings", callback_data="settings:footer")],
+        ])
+        try:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"❌ Dump Cancelled. Post ಕಳುಹಿಸಿಲ್ಲ.\n\n⚜️ SKR Photo Caption Bot\nCurrent Mode: {mode_label}\nDump Channel ID: {dump_id}\n\nಇಲ್ಲಿಂದ ಮುಂದುವರಿಸಬಹುದು.",
+                reply_markup=keyboard,
+                parse_mode=None,
+            )
+        except Exception:
+            logging.warning("Could not send cancellation message to PM for user %s; user may not have started the bot privately.", user.id)
         return
     if data == "dump:yes":
         pending = context.user_data.get("pending_dump_post")
