@@ -132,32 +132,60 @@ def save_poster_setting(user_id: int, key: str, value):
 
 
 def search_google_image_posters(movie_name: str) -> list:
-    """Fetch candidate image URLs from Google Images without an API key; HTML can change."""
+    """Extract direct image URLs from Google Images HTML without an API key."""
+    query = clean_imdb_movie_title(transliterate_kannada_to_english(movie_name)).strip()
+    if not query:
+        return []
     try:
-        query = clean_imdb_movie_title(transliterate_kannada_to_english(movie_name))
-        params = urllib.parse.urlencode({"tbm": "isch", "q": query + " movie poster"})
+        params = urllib.parse.urlencode({"tbm": "isch", "q": query + " movie poster", "safe": "active"})
         request = urllib.request.Request(
             "https://www.google.com/search?" + params,
-            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
         )
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=15) as response:
             page = response.read().decode("utf-8", errors="ignore")
-        page = page.replace("\\u003d", "=").replace("\\u0026", "&").replace("\\u003a", ":").replace("\\u002f", "/").replace("&amp;", "&")
-        candidates = re.findall(r'https?://[^"\\<>\s]+', page)
+
+        # Google embeds source image URLs in JSON fields and imgurl query parameters.
+        page = html.unescape(page)
+        page = page.replace("\\u003d", "=").replace("\\u0026", "&").replace("\\u003a", ":").replace("\\u002f", "/")
+        raw_candidates = []
+        for pattern in (
+            r'"ou"\s*:\s*"(https?://[^"]+)"',
+            r'"image_url"\s*:\s*"(https?://[^"]+)"',
+            r'imgurl=(https?%3A%2F%2F[^&"]+)',
+            r'https?://[^"\\<>\s]+',
+        ):
+            raw_candidates.extend(re.findall(pattern, page, flags=re.IGNORECASE))
+
         posters, seen = [], set()
-        for candidate in candidates:
-            candidate = candidate.rstrip("),;").replace("\\/", "/")
-            low = candidate.lower()
-            if "google.com" in low or "gstatic.com" in low:
+        for candidate in raw_candidates:
+            candidate = candidate.replace("\\/", "/").replace("\\u0026", "&").replace("\\u003d", "=")
+            candidate = urllib.parse.unquote(candidate).strip().rstrip("),;")
+            candidate = candidate.replace("\\u0026", "&")
+            if not candidate.startswith(("http://", "https://")):
                 continue
-            if not re.search(r"\.(?:jpe?g|png|webp)(?:[?#&]|$)", low) and not any(host in low for host in ("image.tmdb.org", "media-amazon.com", "imdb.com/images")):
+            parsed = urllib.parse.urlsplit(candidate)
+            host = (parsed.hostname or "").lower()
+            if not host or host == "google.com" or host.endswith(".google.com") or host.endswith(".gstatic.com") or host.endswith(".googleusercontent.com"):
                 continue
+            # Reject page URLs and keep likely direct image resources; extensionless image-CDN URLs are valid too.
+            path = parsed.path.lower()
+            image_ext = re.search(r"\.(?:jpe?g|png|webp|avif|gif)$", path) is not None
+            known_image_host = any(h in host for h in ("image.tmdb.org", "media-amazon.com", "m.media-amazon.com", "imdb.com", "images.unsplash.com"))
+            if not image_ext and not known_image_host and not any(key in parsed.query.lower() for key in ("format=jpg", "format=jpeg", "format=png", "fm=jpg", "fm=webp")):
+                continue
+            candidate = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
             if candidate in seen:
                 continue
             seen.add(candidate)
             posters.append({"url": candidate, "label": "Google Images poster", "year": ""})
-            if len(posters) >= 8:
+            if len(posters) >= 12:
                 break
+        logging.info("Google Images returned %s poster candidates for %r", len(posters), query)
         return posters
     except Exception:
         logging.warning("Google Images poster search failed for %r", movie_name, exc_info=True)
