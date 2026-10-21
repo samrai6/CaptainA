@@ -22,7 +22,7 @@ HELP_TEXT = (
     "Send this along with a photo."
 )
 
-URL_RE = re.compile(r"https?://\\S+", re.IGNORECASE)
+URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 
 def make_caption(movie_name: str, link: str) -> str:
