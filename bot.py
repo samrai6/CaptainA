@@ -139,7 +139,7 @@ def save_button_footer(user_id: int, footer: str):
         conn.execute(
             "INSERT INTO user_footers (user_id, footer, button_footer) VALUES (?, ?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET button_footer = excluded.button_footer",
-            (user_id, "", footer),
+            (user_id, DEFAULT_FOOTER, footer),
         )
 
 
