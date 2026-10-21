@@ -664,19 +664,20 @@ def parse_postlink_caption(text: str):
             if link and link not in links:
                 links.append(link)
     if not title or not links:
-        return None, [], "Join fast & Please Wait 👆👍✅❤️"
+        return None, [], "Uploading Join Fast 👇👇"
     links = (links + [links[-1]] * 3)[:3]
-    final_line = "Join fast & Please Wait 👆👍✅❤️"
-    for line in reversed(lines[1:]):
-        if not URL_RE.search(line) and line.strip():
-            final_line = line.replace("**", "").strip()
-            break
-    return title, links, final_line
+    return title, links, "Uploading Join Fast 👇👇"
 
 
 def make_postlink_caption(title: str, links: list, final_line: str, footer: str) -> str:
-    return (literal_bold(title) + "\n" + "\n".join(literal_bold(link) for link in links)
-            + "\n\n" + literal_bold(final_line) + "\n" + render_footer(footer))
+    # Postlink caption has a fixed heading and a de-duplicated footer.
+    footer_lines = list(dict.fromkeys(
+        line.strip() for line in footer.replace("\\n", "\n").splitlines() if line.strip()
+    ))
+    footer_text = render_footer("\n".join(footer_lines))
+    return (literal_bold(title) + "\n\n" + literal_bold("Uploading Join Fast 👇👇")
+            + "\n" + "\n".join(literal_bold(link) for link in links)
+            + "\n\n" + footer_text)
 
 
 def parse_caption(text: str):
