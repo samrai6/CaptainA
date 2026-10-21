@@ -1061,6 +1061,57 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("✅ Post Dump Channel‌ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.")
 
 
+async def watermark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    s = get_poster_settings(user.id)
+    await message.reply_text(
+        f"Current watermark: {s['watermark_text']}\nSize: {s['watermark_size']}\nPosition: {s['watermark_position']}\n\n"
+        "/setwatermark @SKR_updates\n/setwatermarksize 28\n/setwatermarkposition bottom-right\n"
+        "Positions: bottom-right, bottom-left, top-right, top-left, center", parse_mode=None)
+
+
+async def setwatermark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    value = " ".join(context.args).strip()
+    if not message or not user:
+        return
+    if not value or len(value) > 80:
+        await message.reply_text("Format: /setwatermark @SKR_updates", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_text", value)
+    await message.reply_text("✅ Watermark text save ಆಯಿತು. ಹೊಸ posters ಮೇಲೆ white fontನಲ್ಲಿ ಬರುತ್ತದೆ.", parse_mode=None)
+
+
+async def setwatermarksize_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    try:
+        size = int(context.args[0]) if context.args else 0
+    except ValueError:
+        size = 0
+    if size < 12 or size > 100:
+        await message.reply_text("Format: /setwatermarksize 28 (12-100)", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_size", size)
+    await message.reply_text(f"✅ Watermark font size {size} save ಆಯಿತು.", parse_mode=None)
+
+
+async def setwatermarkposition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    allowed = {"bottom-right", "bottom-left", "top-right", "top-left", "center"}
+    value = "-".join(context.args).strip().lower()
+    if not message or not user:
+        return
+    if value not in allowed:
+        await message.reply_text("Format: /setwatermarkposition bottom-right\nOptions: bottom-right, bottom-left, top-right, top-left, center", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_position", value)
+    await message.reply_text("✅ Watermark position save ಆಯಿತು.", parse_mode=None)
+
+
 async def normal_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
         user = update.effective_user
@@ -1188,6 +1239,10 @@ def main():
     app.add_handler(CommandHandler("setdownloadtext", setdownloadtext))
     app.add_handler(CommandHandler("setwatchtext", setwatchtext))
     app.add_handler(CommandHandler("setupdatesbutton", setupdatesbutton))
+    app.add_handler(CommandHandler("watermark", watermark_command))
+    app.add_handler(CommandHandler("setwatermark", setwatermark_command))
+    app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
+    app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
