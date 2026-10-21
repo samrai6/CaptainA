@@ -307,6 +307,9 @@ def parse_caption(text: str):
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
+    # Button Mode footer: remove duplicate identical lines, without changing Normal Mode.
+    footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
+    button_footer = render_footer("\n".join(footer_lines))
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
@@ -317,7 +320,7 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
         f"{literal_bold('⚡ ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ಸಿನಿಮಾ ಪಡೆಯಿರಿ!')}\n"
         f"{literal_bold('📢 JOIN UPDATES CHANNEL / ಅಪ್‌ಡೇಟ್ಸ್ ಚಾನೆಲ್ ಸೇರಿ')}\n"
         f"{literal_bold('══════════════════════')}\n"
-        f"{render_footer(footer)}"
+        f"{button_footer}"
     )
 
 
