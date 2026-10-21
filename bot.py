@@ -911,7 +911,8 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         context.user_data.pop("pending_poster_selection", None)
         confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
-        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. White watermark ಸೇರಿಸಲಾಗಿದೆ: " + watermark_settings["watermark_text"])
+        watermark_note = ("White watermark: " + watermark_settings["watermark_text"]) if watermark_settings.get("watermark_enabled", 1) else "Watermark OFF — poster ಮೇಲೆ watermark ಹಾಕಿಲ್ಲ."
+        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. " + watermark_note)
         await context.bot.send_message(chat_id=user.id, text="📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
         return
     if data == "settings:watermark":
