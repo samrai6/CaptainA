@@ -83,7 +83,10 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
-            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right')")
+            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1)")
+            existing_poster_columns = {row[1] for row in conn.execute("PRAGMA table_info(poster_settings)").fetchall()}
+            if "watermark_enabled" not in existing_poster_columns:
+                conn.execute("ALTER TABLE poster_settings ADD COLUMN watermark_enabled INTEGER NOT NULL DEFAULT 1")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -97,7 +100,7 @@ def init_footer_db():
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
-DEFAULT_POSTER_SETTINGS = {"watermark_text": "@SKR_updates", "watermark_size": 28, "watermark_position": "bottom-right"}
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "@SKR_updates", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1}
 
 
 def get_poster_settings(user_id: int) -> dict:
@@ -108,9 +111,9 @@ def get_poster_settings(user_id: int) -> dict:
             settings.update({key: row[key] for key in settings if key in row})
         return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position, watermark_enabled FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
     if row:
-        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position"], row)))
+        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position", "watermark_enabled"], row)))
     return settings
 
 
@@ -123,9 +126,9 @@ def save_poster_setting(user_id: int, key: str, value):
     settings = get_poster_settings(user_id)
     settings[key] = value
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position) VALUES (?, ?, ?, ?) "
-                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position",
-                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"]))
+        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position, watermark_enabled) VALUES (?, ?, ?, ?, ?) "
+                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position, watermark_enabled=excluded.watermark_enabled",
+                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"], settings["watermark_enabled"]))
 
 
 def search_google_image_posters(movie_name: str) -> list:
@@ -175,6 +178,10 @@ def make_watermarked_poster(image_url: str, settings: dict) -> bytes:
     except OSError:
         font = ImageFont.load_default()
     label = str(settings.get("watermark_text", "@SKR_updates"))[:80]
+    if not settings.get("watermark_enabled", 1) or not label:
+        output = io.BytesIO()
+        image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+        return output.getvalue()
     bbox = draw.textbbox((0, 0), label, font=font, stroke_width=1)
     text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
     margin = max(10, width // 40)
@@ -662,6 +669,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
+        [InlineKeyboardButton("🖼️ Watermark Settings", callback_data="settings:watermark")],
     ])
     dump_id = settings.get("dump_channel_id") or "Not set"
     await update.message.reply_text(
@@ -726,6 +734,27 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.text or not user:
+        return
+    if context.user_data.get("awaiting_watermark_text"):
+        value = message.text.strip()
+        context.user_data.pop("awaiting_watermark_text", None)
+        if not value or len(value) > 80:
+            await message.reply_text("❌ Watermark text 1–80 characters ಇರಲಿ. ಮತ್ತೆ Watermark Settings ತೆರೆಯು.", parse_mode=None)
+            return
+        save_poster_setting(user.id, "watermark_text", value)
+        await message.reply_text("✅ Watermark text save ಆಯಿತು: " + value, reply_markup=watermark_settings_keyboard(get_poster_settings(user.id)), parse_mode=None)
+        return
+    if context.user_data.get("awaiting_watermark_size"):
+        context.user_data.pop("awaiting_watermark_size", None)
+        try:
+            size = int(message.text.strip())
+        except ValueError:
+            size = 0
+        if size < 12 or size > 100:
+            await message.reply_text("❌ Font size 12–100 ನಡುವೆ ಇರಬೇಕು.", reply_markup=watermark_settings_keyboard(get_poster_settings(user.id)), parse_mode=None)
+            return
+        save_poster_setting(user.id, "watermark_size", size)
+        await message.reply_text(f"✅ Font size {size} save ಆಯಿತು.", reply_markup=watermark_settings_keyboard(get_poster_settings(user.id)), parse_mode=None)
         return
     if get_post_mode(user.id) == "postlink" and not context.user_data.get("awaiting_dump_channel"):
         await message.reply_text("🔗 Postlink Modeನಲ್ಲಿ IMDb search ಇಲ್ಲ. Photo ಜೊತೆಗೆ movie title ಮತ್ತು Telegram invite link ಅನ್ನು captionನಲ್ಲಿ ಹಾಕು.", parse_mode=None)
@@ -836,6 +865,22 @@ async def removedump_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await message.reply_text(f"✅ Dump channel remove ಆಗಿದೆ: {channel_id}", parse_mode=None)
 
 
+def watermark_settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
+    enabled = bool(settings.get("watermark_enabled", 1))
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Edit Watermark Text", callback_data="wm:edit_text")],
+        [InlineKeyboardButton("🔠 Change Font Size", callback_data="wm:edit_size")],
+        [InlineKeyboardButton("📍 Choose Position", callback_data="wm:positions")],
+        [InlineKeyboardButton("🔕 Disable Watermark" if enabled else "🔛 Enable Watermark", callback_data="wm:toggle")],
+        [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
+    ])
+
+
+def watermark_positions_keyboard() -> InlineKeyboardMarkup:
+    positions = [("↖️ Top Left", "top-left"), ("↗️ Top Right", "top-right"), ("↙️ Bottom Left", "bottom-left"), ("↘️ Bottom Right", "bottom-right"), ("🎯 Center", "center")]
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data="wm:pos:" + pos)] for label, pos in positions] + [[InlineKeyboardButton("⬅️ Back", callback_data="settings:watermark")]])
+
+
 async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query, user = update.callback_query, update.effective_user
     if not query or not user:
@@ -866,8 +911,42 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         context.user_data.pop("pending_poster_selection", None)
         confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
-        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. White watermark ಸೇರಿಸಲಾಗಿದೆ: " + watermark_settings["watermark_text"])
+        watermark_note = ("White watermark: " + watermark_settings["watermark_text"]) if watermark_settings.get("watermark_enabled", 1) else "Watermark OFF — poster ಮೇಲೆ watermark ಹಾಕಿಲ್ಲ."
+        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. " + watermark_note)
         await context.bot.send_message(chat_id=user.id, text="📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
+        return
+    if data == "settings:watermark":
+        s = get_poster_settings(user.id)
+        status = "ON 🔛" if s.get("watermark_enabled", 1) else "OFF 🔕"
+        await query.edit_message_text(f"🖼️ Watermark Settings\n\nStatus: {status}\nText: {s['watermark_text']}\nFont size: {s['watermark_size']}\nPosition: {s['watermark_position']}\n\nಈ settings ಹೊಸದಾಗಿ ಆಯ್ಕೆ ಮಾಡುವ posters ಮೇಲೆ ಅನ್ವಯವಾಗುತ್ತವೆ.", reply_markup=watermark_settings_keyboard(s), parse_mode=None)
+        return
+    if data == "settings:back":
+        await query.edit_message_text("⚙️ Settings menu ಮತ್ತೆ ತೆರೆಯಲು /start ಒತ್ತು.")
+        return
+    if data == "wm:edit_text":
+        context.user_data["awaiting_watermark_text"] = True
+        await query.edit_message_text("✏️ ಹೊಸ watermark text ಕಳುಹಿಸು (ಉದಾ: @SKR_updates). 1–80 characters.")
+        return
+    if data == "wm:edit_size":
+        context.user_data["awaiting_watermark_size"] = True
+        await query.edit_message_text("🔠 Font size ಕಳುಹಿಸು (12–100). Default: 28")
+        return
+    if data == "wm:positions":
+        await query.edit_message_text("📍 Watermark position ಆಯ್ಕೆ ಮಾಡು:", reply_markup=watermark_positions_keyboard())
+        return
+    if data == "wm:toggle":
+        s = get_poster_settings(user.id)
+        save_poster_setting(user.id, "watermark_enabled", 0 if s.get("watermark_enabled", 1) else 1)
+        s = get_poster_settings(user.id)
+        status = "enabled 🔛" if s.get("watermark_enabled", 1) else "disabled 🔕"
+        await query.edit_message_text("✅ Watermark " + status + ".", reply_markup=watermark_settings_keyboard(s), parse_mode=None)
+        return
+    if data.startswith("wm:pos:"):
+        pos = data.split(":", 2)[2]
+        if pos in {"bottom-right", "bottom-left", "top-right", "top-left", "center"}:
+            save_poster_setting(user.id, "watermark_position", pos)
+        s = get_poster_settings(user.id)
+        await query.edit_message_text("✅ Position save ಆಯಿತು: " + s["watermark_position"], reply_markup=watermark_settings_keyboard(s), parse_mode=None)
         return
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
