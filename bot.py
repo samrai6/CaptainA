@@ -311,7 +311,9 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
         f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
-        f"{literal_bold('Download / Watch using the buttons below')}\n"
+        f"{literal_bold('👇🏻 𝐂𝐇𝐎𝐎𝐒𝐄 𝐘𝐎𝐔𝐑 𝐎𝐏𝐓𝐈𝐎𝐍 👇🏻')}\n"
+        f"{literal_bold('📥 DOWNLOAD  |  ▶️ WATCH ONLINE')}\n"
+        f"{literal_bold('⚡ Tap a button below to continue')}\n"
         f"{literal_bold('══════════════════════')}\n"
         f"{render_footer(footer)}"
     )
