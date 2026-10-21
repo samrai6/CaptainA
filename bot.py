@@ -450,7 +450,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Normal Footer", callback_data="settings:footer"), InlineKeyboardButton("🧩 Button Footer", callback_data="settings:buttonfooter")],
     ])
-    dump_id = get_user_settings(0).get("dump_channel_id") or "Not set"
+    dump_id = settings.get("dump_channel_id") or "Not set"
     await update.message.reply_text(
         f"⚜️ SKR Photo Caption Bot\n\nCurrent Mode: {mode_label}\nDump Channel ID: {dump_id}\n\nChoose an option below.",
         reply_markup=keyboard,
@@ -496,9 +496,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not re.fullmatch(r"-?\d+", channel_id):
             await message.reply_text("❌ Channel ID numeric aagirabeku. Matte try maadi.", parse_mode=None)
             return
-        save_setting(0, "dump_channel_id", channel_id)
+        save_setting(user.id, "dump_channel_id", channel_id)
         context.user_data.pop("awaiting_dump_channel", None)
-        await message.reply_text("✅ Global Dump Channel ID save aagide. Iga ella users-ge ide channel use aagutte; redeploy aadru MongoDB alli save irutte. Bot channel admin aagirabeku.", parse_mode=None)
+        await message.reply_text("✅ Nimma Dump Channel ID save aagide. Idu nimge maatra apply aagutte; bere users tamma ID set maadabahudu. Redeploy aadru MongoDB alli save irutte. Bot channel admin aagirabeku.", parse_mode=None)
         return
     movie_name, download_link, watch_link = parse_caption(message.text)
     if not movie_name or not download_link:
@@ -540,7 +540,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "settings:dump":
         context.user_data["awaiting_dump_channel"] = True
-        await query.message.reply_text("Global Dump Channel ID ಕಳುಹಿಸು. ಇದನ್ನು ಒಮ್ಮೆ set ಮಾಡಿದರೆ ಎಲ್ಲ users use ಮಾಡಬಹುದು. Channel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು.", parse_mode=None)
+        await query.message.reply_text("Nimma Dump Channel ID ಕಳುಹಿಸು. Idu nimma account-ge maatra save aagutte; bere users tamma ID set maadabahudu. Channel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು.", parse_mode=None)
         return
     if data == "settings:buttons":
         await query.message.reply_text("Button settings commands:\n/buttonsettings\n/setdownloadtext <name>\n/setwatchtext <name>\n/setupdatesbutton <name> | <link>", parse_mode=None)
@@ -584,12 +584,12 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "dump:yes":
         pending = context.user_data.get("pending_dump_post")
-        channel_id = get_user_settings(0).get("dump_channel_id", "").strip()
+        channel_id = get_user_settings(user.id).get("dump_channel_id", "").strip()
         if not pending:
             await query.edit_message_text("⚠️ Pending post ಇಲ್ಲ. ಮತ್ತೆ post ಕಳುಹಿಸು.")
             return
         if not channel_id:
-            await query.edit_message_text("⚠️ Global Dump Channel ID set ಆಗಿಲ್ಲ. Bot owner /start → Set Dump Channel ID ಮೂಲಕ ಒಮ್ಮೆ set ಮಾಡಬೇಕು.")
+            await query.edit_message_text("⚠️ Nimma Dump Channel ID set ಆಗಿಲ್ಲ. /start → Set Dump Channel ID ಮೂಲಕ nimma ID set maadi.")
             return
         try:
             if pending["type"] == "photo":
