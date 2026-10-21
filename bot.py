@@ -213,10 +213,33 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
     )
 
 
+def clean_imdb_movie_title(movie_name: str) -> str:
+    """Keep only the movie title for IMDb lookup; preserve the original caption elsewhere."""
+    title = movie_name.strip()
+    # Remove year tags such as (2026) or [2026].
+    title = re.sub(r"[\\[(]\\s*(?:19|20)\\d{2}\\s*[\\])]", " ", title)
+    # Remove common language, dub, quality, and release tags.
+    noise_patterns = [
+        r"(?i)\\b(?:kannada|kan|hindi|tamil|telugu|malayalam|english)\\b",
+        r"(?i)\\b(?:dub(?:bed)?|original|multi(?:ple)?[ -]?audio)\\b",
+        r"(?i)\\b(?:hdrip|web[ -]?dl|webrip|bluray|brrip|dvdrip|camrip|hdtv|prehd)\\b",
+        r"(?i)\\b\\d{3,4}\\s*[pP]\\b",
+        r"(?i)\\b(?:x264|x265|h264|h265|hevc|10bit|8bit)\\b",
+        r"(?i)\\b(?:4k|uhd|hd|full[ -]?hd)\\b",
+        r"#\\w+",
+    ]
+    for pattern in noise_patterns:
+        title = re.sub(pattern, " ", title)
+    title = re.sub(r"[|_]+", " ", title)
+    title = re.sub(r"\\s+", " ", title).strip(" -–—#")
+    return title or movie_name.strip()
+
+
 def find_imdb_poster(movie_name: str):
     """Look up a likely IMDb title poster without requiring an API key."""
     try:
-        query = urllib.parse.quote(movie_name.strip())
+        search_title = clean_imdb_movie_title(movie_name)
+        query = urllib.parse.quote(search_title)
         request = urllib.request.Request(
             f"https://v2.sg.media-imdb.com/suggestion/x/{query}.json",
             headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"},
