@@ -40,3 +40,15 @@ python bot.py
 ```
 
 The bot will not run until a valid `BOT_TOKEN` is configured and the service is deployed.
+
+## TMDB poster selection and watermark
+
+Set the Render/Koyeb environment variable `TMDB_API_KEY` to your TMDB API key. The first line of a text submission is used only as the poster search title (for example, `KGF 2018`); the second line begins the caption title, followed by the movie links. The bot shows matching TMDB posters (and an IMDb fallback when available) as inline choices. After selecting one, it adds a white watermark before showing the existing dump confirmation flow.
+
+Watermark commands:
+- `/watermark` — show current settings and help
+- `/setwatermark @SKR_updates` — change watermark text
+- `/setwatermarksize 28` — change font size (12–100)
+- `/setwatermarkposition bottom-right` — choose `bottom-right`, `bottom-left`, `top-right`, `top-left`, or `center`
+
+Pillow is installed through `requirements.txt` for image processing. If `TMDB_API_KEY` is missing, TMDB search is skipped and the bot tries the existing IMDb poster search.
