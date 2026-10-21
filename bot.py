@@ -45,6 +45,7 @@ MONGO_URI = (
     or os.getenv("MONGO_URI")
     or os.getenv("MONGO_URL")
     or os.getenv("MONGODB_URL")
+    or os.getenv("DATABASE_URL")
     or ""
 ).strip()
 _mongo_client = None
