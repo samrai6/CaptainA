@@ -348,12 +348,8 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
-        f"{literal_bold('👇🏻 ನಿಮ್ಮ ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ 👇🏻')}\n"
-        f"{literal_bold('📥 DOWNLOAD / ಡೌನ್‌ಲೋಡ್')}\n"
-        f"{literal_bold('▶️ WATCH ONLINE / ಆನ್‌ಲೈನ್‌ನಲ್ಲಿ ವೀಕ್ಷಿಸಿ')}\n"
-        f"{literal_bold('⚡ ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ಸಿನಿಮಾ ಪಡೆಯಿರಿ!')}\n"
-        f"{literal_bold('📢 JOIN UPDATES CHANNEL / ಅಪ್‌ಡೇಟ್ಸ್ ಚಾನೆಲ್ ಸೇರಿ')}\n"
+        f"{literal_bold('📂 FILES / ಲಿಂಕ್')}\n"
+        f"{literal_bold('👇🏻 ಕೆಳಗಿನ ಬಟನ್ ಆಯ್ಕೆಮಾಡಿ')}\n"
         f"{literal_bold('══════════════════════')}\n"
         f"{button_footer}"
     )
