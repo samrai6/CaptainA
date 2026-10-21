@@ -214,9 +214,8 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
 
 
 def clean_imdb_movie_title(movie_name: str) -> str:
-    """Remove year, language, and quality tags before looking up a movie."""
+    """Keep the movie title and release year, removing language/quality tags."""
     title = movie_name.strip()
-    title = re.sub(r"[\[(]\s*(?:19|20)\d{2}\s*[\])]", " ", title)
     noise_patterns = [
         r"(?i)\b(?:kannada|kan|hindi|tamil|telugu|malayalam|english)\b",
         r"(?i)\b(?:dub(?:bed)?|original|multi(?:ple)?[ -]?audio)\b",
