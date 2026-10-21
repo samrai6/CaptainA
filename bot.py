@@ -464,6 +464,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         caption = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
         keyboard = None
+    # Normalize literal newline markers and remove accidental empty parentheses before posting.
+    caption = caption.replace("\\n", "\n").replace("()", "")
     context.user_data["pending_dump_post"] = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
@@ -492,6 +494,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         output = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
         keyboard = None
+    # Normalize literal newline markers and remove accidental empty parentheses before posting.
+    output = output.replace("\\n", "\n").replace("()", "")
     poster_url = await asyncio.to_thread(find_imdb_poster, movie_name)
     if poster_url:
         context.user_data.pop("pending_manual_photo", None)
