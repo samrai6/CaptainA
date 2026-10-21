@@ -48,10 +48,11 @@ MONGO_URI = (
 _mongo_client = None
 _mongo_footers = None
 _mongo_settings = None
+_mongo_dumps = None
 
 
 def init_footer_db():
-    global _mongo_client, _mongo_footers, _mongo_settings
+    global _mongo_client, _mongo_footers, _mongo_settings, _mongo_dumps
     if MONGO_URI:
         from pymongo import MongoClient
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
@@ -60,8 +61,10 @@ def init_footer_db():
         collection_name = os.getenv("MONGODB_FOOTER_COLLECTION", "user_footers")
         _mongo_footers = _mongo_client[db_name][collection_name]
         _mongo_settings = _mongo_client[db_name][os.getenv("MONGODB_SETTINGS_COLLECTION", "user_settings")]
+        _mongo_dumps = _mongo_client[db_name][os.getenv("MONGODB_DUMPS_COLLECTION", "user_dumps")]
         _mongo_footers.create_index("user_id", unique=True)
         _mongo_settings.create_index("user_id", unique=True)
+        _mongo_dumps.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
         logging.info("Footer storage connected to MongoDB database %s", db_name)
     else:
         with sqlite3.connect(FOOTER_DB_PATH) as conn:
@@ -74,6 +77,7 @@ def init_footer_db():
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
+            conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -142,6 +146,42 @@ DEFAULT_BUTTON_SETTINGS = {
     "updates_url": "https://t.me/SKR_updates",
     "dump_channel_id": "",
 }
+
+
+def get_dump_channels(user_id: int) -> list:
+    """Return this user's dump channels, including a legacy single dump if present."""
+    if _mongo_dumps is not None:
+        rows = list(_mongo_dumps.find({"user_id": user_id}, {"channel_id": 1, "_id": 0}))
+        channels = [str(row["channel_id"]) for row in rows if row.get("channel_id")]
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            rows = conn.execute("SELECT channel_id FROM user_dumps WHERE user_id = ? ORDER BY rowid", (user_id,)).fetchall()
+        channels = [str(row[0]) for row in rows]
+    legacy = get_user_settings(user_id).get("dump_channel_id", "").strip()
+    if legacy and legacy not in channels:
+        channels.insert(0, legacy)
+    return list(dict.fromkeys(channels))
+
+
+def add_dump_channel(user_id: int, channel_id: str):
+    channel_id = str(channel_id).strip()
+    if _mongo_dumps is not None:
+        _mongo_dumps.update_one({"user_id": user_id, "channel_id": channel_id}, {"$setOnInsert": {"user_id": user_id, "channel_id": channel_id}}, upsert=True)
+        return
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("INSERT OR IGNORE INTO user_dumps (user_id, channel_id) VALUES (?, ?)", (user_id, channel_id))
+
+
+def remove_dump_channel(user_id: int, channel_id: str):
+    channel_id = str(channel_id).strip()
+    if _mongo_dumps is not None:
+        _mongo_dumps.delete_one({"user_id": user_id, "channel_id": channel_id})
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            conn.execute("DELETE FROM user_dumps WHERE user_id = ? AND channel_id = ?", (user_id, channel_id))
+    settings = get_user_settings(user_id)
+    if settings.get("dump_channel_id", "").strip() == channel_id:
+        save_setting(user_id, "dump_channel_id", "")
 
 
 def get_user_settings(user_id: int) -> dict:
@@ -552,9 +592,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not re.fullmatch(r"-?\d+", channel_id):
             await message.reply_text("❌ Channel ID numeric aagirabeku. Matte try maadi.", parse_mode=None)
             return
-        save_setting(user.id, "dump_channel_id", channel_id)
+        add_dump_channel(user.id, channel_id)
         context.user_data.pop("awaiting_dump_channel", None)
-        await message.reply_text("✅ Nimma Dump Channel ID save aagide. Idu nimge maatra apply aagutte; bere users tamma ID set maadabahudu. Redeploy aadru MongoDB alli save irutte. Bot channel admin aagirabeku.", parse_mode=None)
+        await message.reply_text("✅ Dump Channel add aagide. /dumps ಮೂಲಕ list ನೋಡಬಹುದು. Channel‌ನಲ್ಲಿ bot admin aagirabeku.", parse_mode=None)
         return
     imdb_title, movie_name, links = parse_text_submission(message.text)
     if not imdb_title or not movie_name or not links:
@@ -593,6 +633,54 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
 
+async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
+    if pending["type"] == "photo":
+        await context.bot.send_photo(chat_id=channel_id, photo=pending.get("file_id") or pending.get("poster_url"), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+    else:
+        await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+
+
+async def adddump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    channel_id = " ".join(context.args).strip()
+    if not re.fullmatch(r"-?\d+", channel_id):
+        await message.reply_text("Format: /adddump -1001234567890\nBot channel admin ಆಗಿರಬೇಕು.", parse_mode=None)
+        return
+    add_dump_channel(user.id, channel_id)
+    await message.reply_text(f"✅ Dump channel add ಆಗಿದೆ: {channel_id}\nಒಟ್ಟು dumps: {len(get_dump_channels(user.id))}", parse_mode=None)
+
+
+async def dumps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    channels = get_dump_channels(user.id)
+    if not channels:
+        await message.reply_text("Dump channels ಇನ್ನೂ add ಮಾಡಿಲ್ಲ.\n/adddump -1001234567890", parse_mode=None)
+        return
+    lines = [f"{i}. {channel_id}" for i, channel_id in enumerate(channels, 1)]
+    await message.reply_text("🗃 Your Dump Channels:\n\n" + "\n".join(lines) + "\n\nRemove: /removedump 1", parse_mode=None)
+
+
+async def removedump_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    if not context.args or not context.args[0].isdigit():
+        await message.reply_text("Format: /removedump 1\n/dumps ಮೂಲಕ number ನೋಡಿ.", parse_mode=None)
+        return
+    channels = get_dump_channels(user.id)
+    index = int(context.args[0]) - 1
+    if index < 0 or index >= len(channels):
+        await message.reply_text("❌ ಆ number‌ನ dump channel ಸಿಗಲಿಲ್ಲ. /dumps ನೋಡಿ.", parse_mode=None)
+        return
+    channel_id = channels[index]
+    remove_dump_channel(user.id, channel_id)
+    await message.reply_text(f"✅ Dump channel remove ಆಗಿದೆ: {channel_id}", parse_mode=None)
+
+
 async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query, user = update.callback_query, update.effective_user
     if not query or not user:
@@ -615,6 +703,49 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "settings:footer":
         await query.message.reply_text("Footer commands:\n/footer\n/setfooter <footer text>\n/resetfooter", parse_mode=None)
+        return
+    if data == "dump:yes":
+        pending = context.user_data.get("pending_dump_post")
+        channels = get_dump_channels(user.id)
+        if not pending:
+            await query.edit_message_text("⚠️ Pending post ಇಲ್ಲ. ಮತ್ತೆ post ಕಳುಹಿಸು.")
+            return
+        if not channels:
+            await query.edit_message_text("⚠️ Dump Channel add ಆಗಿಲ್ಲ. /adddump ಮೂಲಕ channel ID add ಮಾಡು.")
+            return
+        if len(channels) == 1:
+            await deliver_pending_post(context, user.id, channels[0], pending)
+            context.user_data.pop("pending_dump_post", None)
+            await query.edit_message_text("✅ Post Dump Channel‌ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.")
+            return
+        rows = [[InlineKeyboardButton(f"📤 {channel_id}", callback_data=f"dest:{channel_id}")] for channel_id in channels]
+        rows.append([InlineKeyboardButton("📣 Send to ALL dumps", callback_data="dest:all")])
+        await query.edit_message_text("ಯಾವ Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕು?", reply_markup=InlineKeyboardMarkup(rows))
+        return
+    if data.startswith("dest:"):
+        pending = context.user_data.get("pending_dump_post")
+        channels = get_dump_channels(user.id)
+        if not pending:
+            await query.edit_message_text("⚠️ Pending post ಇಲ್ಲ. ಮತ್ತೆ post ಕಳುಹಿಸು.")
+            return
+        target = data.split(":", 1)[1]
+        destinations = channels if target == "all" else ([target] if target in channels else [])
+        if not destinations:
+            await query.edit_message_text("⚠️ Dump Channel ಸಿಗಲಿಲ್ಲ. /dumps ಮೂಲಕ ಪರಿಶೀಲಿಸು.")
+            return
+        successes, failures = [], []
+        for channel_id in destinations:
+            try:
+                await deliver_pending_post(context, user.id, channel_id, pending)
+                successes.append(channel_id)
+            except Exception:
+                logging.exception("Failed to send to dump channel %s", channel_id)
+                failures.append(channel_id)
+        context.user_data.pop("pending_dump_post", None)
+        result = f"✅ ಯಶಸ್ವಿಯಾಗಿ ಕಳುಹಿಸಲಾಗಿದೆ: {len(successes)} channel(s)."
+        if failures:
+            result += f"\n❌ Failed: {', '.join(failures)}\nBot admin ಆಗಿದೆಯೇ ಪರಿಶೀಲಿಸು."
+        await query.edit_message_text(result, parse_mode=None)
         return
     if data == "dump:no":
         pending = context.user_data.pop("pending_dump_post", None)
@@ -783,6 +914,9 @@ def main():
     start_health_server()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("adddump", adddump_command))
+    app.add_handler(CommandHandler("dumps", dumps_command))
+    app.add_handler(CommandHandler("removedump", removedump_command))
     app.add_handler(CallbackQueryHandler(button_callbacks))
     app.add_handler(CommandHandler("setfooter", setfooter))
     app.add_handler(CommandHandler("footer", showfooter))
