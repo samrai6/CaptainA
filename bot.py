@@ -23,7 +23,6 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
 HELP_TEXT = (
     "📸 Photo + caption format:\n\n"
     "Text-only format (poster auto-search):\n"
@@ -129,29 +128,37 @@ def save_poster_setting(user_id: int, key: str, value):
                      (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"]))
 
 
-def search_tmdb_posters(movie_name: str) -> list:
-    if not TMDB_API_KEY:
-        return []
+def search_google_image_posters(movie_name: str) -> list:
+    """Fetch candidate image URLs from Google Images without an API key; HTML can change."""
     try:
-        params = urllib.parse.urlencode({"api_key": TMDB_API_KEY, "query": clean_imdb_movie_title(movie_name), "include_adult": "false"})
-        request = urllib.request.Request("https://api.themoviedb.org/3/search/movie?" + params,
-                                         headers={"User-Agent": "SKRPhotoCaptionBot/1.0"})
+        query = clean_imdb_movie_title(transliterate_kannada_to_english(movie_name))
+        params = urllib.parse.urlencode({"tbm": "isch", "q": query + " movie poster"})
+        request = urllib.request.Request(
+            "https://www.google.com/search?" + params,
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"},
+        )
         with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        posters = []
-        for item in data.get("results", []):
-            path = item.get("poster_path")
-            if path:
-                posters.append({"url": "https://image.tmdb.org/t/p/original" + path,
-                                "label": (item.get("title") or "TMDB poster")[:35],
-                                "year": (item.get("release_date") or "")[:4]})
+            page = response.read().decode("utf-8", errors="ignore")
+        page = page.replace("\\u003d", "=").replace("\\u0026", "&").replace("\\u003a", ":").replace("\\u002f", "/").replace("&amp;", "&")
+        candidates = re.findall(r'https?://[^"\\\\<>\\s]+', page)
+        posters, seen = [], set()
+        for candidate in candidates:
+            candidate = candidate.rstrip("),;").replace("\\/", "/")
+            low = candidate.lower()
+            if "google.com" in low or "gstatic.com" in low:
+                continue
+            if not re.search(r"\\.(?:jpe?g|png|webp)(?:[?#&]|$)", low) and not any(host in low for host in ("image.tmdb.org", "media-amazon.com", "imdb.com/images")):
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            posters.append({"url": candidate, "label": "Google Images poster", "year": ""})
             if len(posters) >= 8:
                 break
         return posters
     except Exception:
-        logging.warning("TMDB poster search failed for %r", movie_name, exc_info=True)
+        logging.warning("Google Images poster search failed for %r", movie_name, exc_info=True)
         return []
-
 
 def make_watermarked_poster(image_url: str, settings: dict) -> bytes:
     request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
@@ -753,7 +760,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
     # First line is used for poster search (example: "KGF 2018"); second line starts the actual caption.
-    posters = await asyncio.to_thread(search_tmdb_posters, imdb_title)
+    posters = await asyncio.to_thread(search_google_image_posters, imdb_title)
     imdb_poster = await asyncio.to_thread(find_imdb_poster, imdb_title)
     if imdb_poster and all(item["url"] != imdb_poster for item in posters):
         posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
@@ -770,7 +777,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = poster["label"] + ((" (" + poster["year"] + ")") if poster.get("year") else "")
             rows.append([InlineKeyboardButton(f"🖼️ {i + 1}. {label[:45]}", callback_data=f"posterpick:{i}")])
         await message.reply_text(
-            "🎬 Poster ಆಯ್ಕೆ ಮಾಡು. Search title ಮೊದಲ ಸಾಲಿನಿಂದ ತೆಗೆದುಕೊಂಡಿದ್ದೇನೆ: " + imdb_title,
+            "🎬 Google Images / IMDb poster ಆಯ್ಕೆ ಮಾಡು. Search title ಮೊದಲ ಸಾಲಿನಿಂದ ತೆಗೆದುಕೊಂಡಿದ್ದೇನೆ: " + imdb_title,
             reply_markup=InlineKeyboardMarkup(rows), parse_mode=None,
         )
         return
@@ -778,7 +785,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if settings["post_mode"] == "multi":
         context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
     await message.reply_text(
-        "🖼️ TMDB/IMDb poster ಸಿಗಲಿಲ್ಲ. TMDB_API_KEY set ಮಾಡಿರುವುದನ್ನು ಪರಿಶೀಲಿಸು ಅಥವಾ ನೀನೇ photo ಕಳುಹಿಸು.\n"
+        "🖼️ Google Images / IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು.\n"
         "ಮೊದಲ ಸಾಲು poster searchಗೆ (ಉದಾ: KGF 2018); ಎರಡನೇ ಸಾಲಿನಿಂದ caption ಶುರುವಾಗುತ್ತದೆ.",
         parse_mode=None,
     )
