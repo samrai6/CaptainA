@@ -880,20 +880,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if posters:
         context.user_data.pop("pending_manual_photo", None)
         context.user_data.pop("pending_manual_multi_photo", None)
-        context.user_data["pending_poster_selection"] = {
-            "posters": posters, "caption": output, "keyboard": keyboard,
-            "movie_name": movie_name, "download_link": download_link, "watch_link": watch_link,
-            "multi_links": links[:4] if settings["post_mode"] == "multi" else None,
-        }
-        rows = []
-        for i, poster in enumerate(posters):
-            label = poster["label"] + ((" (" + poster["year"] + ")") if poster.get("year") else "")
-            rows.append([InlineKeyboardButton(f"🖼️ {i + 1}. {label[:45]}", callback_data=f"posterpick:{i}")])
-        await message.reply_text(
-            "🎬 Google Images / IMDb poster ಆಯ್ಕೆ ಮಾಡು. Search title ಮೊದಲ ಸಾಲಿನಿಂದ ತೆಗೆದುಕೊಂಡಿದ್ದೇನೆ: " + imdb_title,
-            reply_markup=InlineKeyboardMarkup(rows), parse_mode=None,
-        )
-        return
+        # Automatically use the first poster that can be downloaded and processed.
+        # Do not ask the user to choose from Google Images / IMDb options.
+        watermark_settings = get_poster_settings(user.id)
+        watermarked = None
+        for poster in posters:
+            try:
+                watermarked = await asyncio.to_thread(
+                    make_watermarked_poster, poster["url"], watermark_settings, movie_name
+                )
+                break
+            except Exception:
+                logging.warning("Poster candidate failed; trying the next result", exc_info=True)
+        if watermarked is not None:
+            context.user_data.pop("pending_poster_selection", None)
+            context.user_data["pending_dump_post"] = {
+                "type": "photo",
+                "watermarked_poster": watermarked,
+                "caption": output,
+                "keyboard": keyboard,
+            }
+            confirm_keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"),
+                InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no"),
+            ]])
+            await message.reply_text(
+                "✅ Poster ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಆಯ್ಕೆ ಮಾಡಿ edit ಮಾಡಿದ್ದೇನೆ.\n"
+                "📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?",
+                reply_markup=confirm_keyboard,
+                parse_mode=None,
+            )
+            return
+        logging.warning("All poster candidates failed to download or process for %s", imdb_title)
     context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
     if settings["post_mode"] == "multi":
         context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
