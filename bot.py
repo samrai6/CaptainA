@@ -319,6 +319,33 @@ def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
     return None
 
 
+
+def watermark_uploaded_photo(raw: bytes, settings: dict) -> bytes:
+    """Add the configured watermark to a user-uploaded photo without AI editing."""
+    with Image.open(io.BytesIO(raw)) as source:
+        image = source.convert("RGBA")
+    width, height = image.size
+    label = str(settings.get("watermark_text", "@SKR_updates"))[:80]
+    if settings.get("watermark_enabled", 1) and label:
+        draw = ImageDraw.Draw(image, "RGBA")
+        font_size = max(12, min(int(settings.get("watermark_size", 28)), max(12, width // 8)))
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+        except OSError:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), label, font=font, stroke_width=1)
+        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        margin = max(10, width // 40)
+        pos = settings.get("watermark_position", "bottom-right")
+        x = margin if "left" in pos else (width - text_w) // 2 if "center" in pos else width - text_w - margin
+        y = margin if pos.startswith("top") else (height - text_h) // 2 if pos == "center" else height - text_h - margin
+        draw.text((x, y), label, font=font, fill=(255, 255, 255, 245),
+                  stroke_width=max(1, font_size // 18), stroke_fill=(0, 0, 0, 170))
+    output = io.BytesIO()
+    image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+    return output.getvalue()
+
+
 def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = "") -> bytes:
     request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
     with urllib.request.urlopen(request, timeout=15) as response:
@@ -895,7 +922,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     caption = caption.replace("\\n", "\n").replace("()", "")
-    context.user_data["pending_dump_post"] = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
+    # Apply the user's watermark to photos they upload directly, too.
+    pending_photo = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
+    try:
+        telegram_file = await context.bot.get_file(message.photo[-1].file_id)
+        uploaded_bytes = bytes(await telegram_file.download_as_bytearray())
+        watermarked_bytes = await asyncio.to_thread(
+            watermark_uploaded_photo, uploaded_bytes, get_poster_settings(user.id)
+        )
+        pending_photo.pop("file_id", None)
+        pending_photo["watermarked_poster"] = watermarked_bytes
+    except Exception:
+        logging.warning("Could not watermark user-uploaded photo; keeping original photo", exc_info=True)
+    context.user_data["pending_dump_post"] = pending_photo
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
