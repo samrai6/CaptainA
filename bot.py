@@ -752,7 +752,8 @@ def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) ->
 def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
     labels = ["360p", "480p", "720p", "1080p"]
     quality_buttons = [InlineKeyboardButton(label, url=link) for label, link in zip(labels, links)]
-    rows = [quality_buttons[i:i + 2] for i in range(0, len(quality_buttons), 2)]
+    # Single-button rows let Telegram stretch the inline keyboard neatly to the photo/message width.
+    rows = [[button] for button in quality_buttons]
     rows.append([InlineKeyboardButton(settings["updates_text"], url=settings["updates_url"])])
     return InlineKeyboardMarkup(rows)
 
@@ -771,14 +772,11 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
 
 
 def make_buttons(download_link: str, watch_link: str, settings: dict) -> InlineKeyboardMarkup:
+    # One button per row makes the keyboard visually fit the photo width.
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(settings["download_text"], url=download_link),
-            InlineKeyboardButton(settings["watch_text"], url=watch_link),
-        ],
-        [
-            InlineKeyboardButton(settings["updates_text"], url=settings["updates_url"]),
-        ],
+        [InlineKeyboardButton(settings["download_text"], url=download_link)],
+        [InlineKeyboardButton(settings["watch_text"], url=watch_link)],
+        [InlineKeyboardButton(settings["updates_text"], url=settings["updates_url"])],
     ])
 
 
