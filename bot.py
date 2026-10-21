@@ -66,8 +66,11 @@ def init_footer_db():
     else:
         with sqlite3.connect(FOOTER_DB_PATH) as conn:
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
+                "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL, button_footer TEXT NOT NULL DEFAULT '🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates')"
             )
+            existing_footer_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_footers)").fetchall()}
+            if "button_footer" not in existing_footer_columns:
+                conn.execute("ALTER TABLE user_footers ADD COLUMN button_footer TEXT NOT NULL DEFAULT '🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates'")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '⬇️ Download', watch_text TEXT NOT NULL DEFAULT '▶️ Watch Online', updates_text TEXT NOT NULL DEFAULT '📢 Join Updates Channel', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
@@ -117,6 +120,35 @@ def reset_footer(user_id: int):
         return
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         conn.execute("DELETE FROM user_footers WHERE user_id = ?", (user_id,))
+
+
+def get_button_footer(user_id: int) -> str:
+    if _mongo_footers is not None:
+        row = _mongo_footers.find_one({"user_id": user_id}, {"button_footer": 1})
+        return row["button_footer"] if row and "button_footer" in row else "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates"
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        row = conn.execute("SELECT button_footer FROM user_footers WHERE user_id = ?", (user_id,)).fetchone()
+    return row[0] if row and row[0] else "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates"
+
+
+def save_button_footer(user_id: int, footer: str):
+    if _mongo_footers is not None:
+        _mongo_footers.update_one({"user_id": user_id}, {"$set": {"button_footer": footer}}, upsert=True)
+        return
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO user_footers (user_id, footer, button_footer) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET button_footer = excluded.button_footer",
+            (user_id, "", footer),
+        )
+
+
+def reset_button_footer(user_id: int):
+    if _mongo_footers is not None:
+        _mongo_footers.update_one({"user_id": user_id}, {"$unset": {"button_footer": ""}})
+        return
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("UPDATE user_footers SET button_footer = ? WHERE user_id = ?", ("🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates", user_id))
 
 
 DEFAULT_BUTTON_SETTINGS = {
@@ -358,6 +390,37 @@ async def setfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def setbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user:
+        return
+    footer = " ".join(context.args).strip()
+    if not footer:
+        await message.reply_text("Format: /setbuttonfooter 🔰 Join :- @YourChannel\\n@YourChannel", parse_mode=None)
+        return
+    if len(footer) > 1000:
+        await message.reply_text("Footer 1000 characters olage irabeku.", parse_mode=None)
+        return
+    save_button_footer(user.id, footer.replace("\\n", "\n"))
+    await message.reply_text("✅ Button Mode footer save aagide. Normal Mode footer change agalla.", parse_mode=None)
+
+
+async def showbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if message and user:
+        await message.reply_text("Current Button Mode footer:\\n\\n" + get_button_footer(user.id), parse_mode=None)
+
+
+async def resetbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if message and user:
+        reset_button_footer(user.id)
+        await message.reply_text("✅ Default Button Mode footer restore aagide.", parse_mode=None)
+
+
 async def showfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     user = update.effective_user
@@ -384,7 +447,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
         [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
-        [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons"), InlineKeyboardButton("✍️ Footer Settings", callback_data="settings:footer")],
+        [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
+        [InlineKeyboardButton("✍️ Normal Footer", callback_data="settings:footer"), InlineKeyboardButton("🧩 Button Footer", callback_data="settings:buttonfooter")],
     ])
     dump_id = settings.get("dump_channel_id") or "Not set"
     await update.message.reply_text(
@@ -413,7 +477,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     settings = get_user_settings(user.id)
     if settings["post_mode"] == "buttons":
-        caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
+        caption = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
         caption = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
@@ -441,7 +505,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     settings = get_user_settings(user.id)
     if settings["post_mode"] == "buttons":
-        output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user.id))
+        output = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
         output = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
@@ -655,6 +719,9 @@ def main():
     app.add_handler(CommandHandler("setfooter", setfooter))
     app.add_handler(CommandHandler("footer", showfooter))
     app.add_handler(CommandHandler("resetfooter", resetfooter))
+    app.add_handler(CommandHandler("setbuttonfooter", setbuttonfooter))
+    app.add_handler(CommandHandler("buttonfooter", showbuttonfooter))
+    app.add_handler(CommandHandler("resetbuttonfooter", resetbuttonfooter))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("normal", normal_mode))
     app.add_handler(CommandHandler("buttons", buttons_mode))
