@@ -1,5 +1,6 @@
 import asyncio
 import html
+import io
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
+from PIL import Image, ImageDraw, ImageFont
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -21,6 +23,7 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
 HELP_TEXT = (
     "📸 Photo + caption format:\n\n"
     "Text-only format (poster auto-search):\n"
@@ -49,10 +52,11 @@ _mongo_client = None
 _mongo_footers = None
 _mongo_settings = None
 _mongo_dumps = None
+_mongo_poster_settings = None
 
 
 def init_footer_db():
-    global _mongo_client, _mongo_footers, _mongo_settings, _mongo_dumps
+    global _mongo_client, _mongo_footers, _mongo_settings, _mongo_dumps, _mongo_poster_settings
     if MONGO_URI:
         from pymongo import MongoClient
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
@@ -62,9 +66,11 @@ def init_footer_db():
         _mongo_footers = _mongo_client[db_name][collection_name]
         _mongo_settings = _mongo_client[db_name][os.getenv("MONGODB_SETTINGS_COLLECTION", "user_settings")]
         _mongo_dumps = _mongo_client[db_name][os.getenv("MONGODB_DUMPS_COLLECTION", "user_dumps")]
+        _mongo_poster_settings = _mongo_client[db_name][os.getenv("MONGODB_POSTER_SETTINGS_COLLECTION", "poster_settings")]
         _mongo_footers.create_index("user_id", unique=True)
         _mongo_settings.create_index("user_id", unique=True)
         _mongo_dumps.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
+        _mongo_poster_settings.create_index("user_id", unique=True)
         logging.info("Footer storage connected to MongoDB database %s", db_name)
     else:
         with sqlite3.connect(FOOTER_DB_PATH) as conn:
@@ -78,6 +84,7 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
+            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right')")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -89,6 +96,97 @@ def init_footer_db():
                 if column not in existing_columns:
                     conn.execute(f"ALTER TABLE user_settings ADD COLUMN {column} {definition}")
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
+
+
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "@SKR_updates", "watermark_size": 28, "watermark_position": "bottom-right"}
+
+
+def get_poster_settings(user_id: int) -> dict:
+    settings = dict(DEFAULT_POSTER_SETTINGS)
+    if _mongo_poster_settings is not None:
+        row = _mongo_poster_settings.find_one({"user_id": user_id})
+        if row:
+            settings.update({key: row[key] for key in settings if key in row})
+        return settings
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
+    if row:
+        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position"], row)))
+    return settings
+
+
+def save_poster_setting(user_id: int, key: str, value):
+    if key not in DEFAULT_POSTER_SETTINGS:
+        raise ValueError("Unsupported poster setting")
+    if _mongo_poster_settings is not None:
+        _mongo_poster_settings.update_one({"user_id": user_id}, {"$set": {key: value}}, upsert=True)
+        return
+    settings = get_poster_settings(user_id)
+    settings[key] = value
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position) VALUES (?, ?, ?, ?) "
+                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position",
+                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"]))
+
+
+def search_tmdb_posters(movie_name: str) -> list:
+    if not TMDB_API_KEY:
+        return []
+    try:
+        params = urllib.parse.urlencode({"api_key": TMDB_API_KEY, "query": clean_imdb_movie_title(movie_name), "include_adult": "false"})
+        request = urllib.request.Request("https://api.themoviedb.org/3/search/movie?" + params,
+                                         headers={"User-Agent": "SKRPhotoCaptionBot/1.0"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        posters = []
+        for item in data.get("results", []):
+            path = item.get("poster_path")
+            if path:
+                posters.append({"url": "https://image.tmdb.org/t/p/original" + path,
+                                "label": (item.get("title") or "TMDB poster")[:35],
+                                "year": (item.get("release_date") or "")[:4]})
+            if len(posters) >= 8:
+                break
+        return posters
+    except Exception:
+        logging.warning("TMDB poster search failed for %r", movie_name, exc_info=True)
+        return []
+
+
+def make_watermarked_poster(image_url: str, settings: dict) -> bytes:
+    request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        raw = response.read(15 * 1024 * 1024 + 1)
+    if len(raw) > 15 * 1024 * 1024:
+        raise ValueError("Poster image is too large")
+    image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    width, height = image.size
+    draw = ImageDraw.Draw(image, "RGBA")
+    font_size = max(12, min(int(settings.get("watermark_size", 28)), max(12, width // 8)))
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+    except OSError:
+        font = ImageFont.load_default()
+    label = str(settings.get("watermark_text", "@SKR_updates"))[:80]
+    bbox = draw.textbbox((0, 0), label, font=font, stroke_width=1)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    margin = max(10, width // 40)
+    pos = settings.get("watermark_position", "bottom-right")
+    x = margin if "left" in pos else (width - text_w) // 2 if "center" in pos else width - text_w - margin
+    y = margin if pos.startswith("top") else (height - text_h) // 2 if pos == "center" else height - text_h - margin
+    draw.text((x, y), label, font=font, fill=(255, 255, 255, 245), stroke_width=max(1, font_size // 18), stroke_fill=(0, 0, 0, 170))
+    output = io.BytesIO()
+    image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+    return output.getvalue()
+
+
+def poster_input(pending: dict):
+    data = pending.get("watermarked_poster")
+    if data:
+        stream = io.BytesIO(data)
+        stream.name = "skr_poster.jpg"
+        return stream
+    return pending.get("file_id") or pending.get("poster_url")
 
 
 def get_footer(user_id: int) -> str:
