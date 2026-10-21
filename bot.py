@@ -123,34 +123,18 @@ def reset_footer(user_id: int):
 
 
 def get_button_footer(user_id: int) -> str:
-    if _mongo_footers is not None:
-        row = _mongo_footers.find_one({"user_id": user_id}, {"button_footer": 1})
-        return row["button_footer"] if row and "button_footer" in row else "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates"
-    with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        row = conn.execute("SELECT button_footer FROM user_footers WHERE user_id = ?", (user_id,)).fetchone()
-    return row[0] if row and row[0] else "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates"
+    # Backward-compatible alias; both modes share the same footer.
+    return get_footer(user_id)
 
 
 def save_button_footer(user_id: int, footer: str):
-    if _mongo_footers is not None:
-        _mongo_footers.update_one({"user_id": user_id}, {"$set": {"button_footer": footer}}, upsert=True)
-        return
-    with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO user_footers (user_id, footer, button_footer) VALUES (?, ?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET button_footer = excluded.button_footer",
-            (user_id, DEFAULT_FOOTER, footer),
-        )
+    # Backward-compatible alias; both modes share the same footer.
+    save_footer(user_id, footer)
 
 
 def reset_button_footer(user_id: int):
-    if _mongo_footers is not None:
-        _mongo_footers.update_one({"user_id": user_id}, {"$unset": {"button_footer": ""}})
-        return
-    with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        conn.execute("UPDATE user_footers SET button_footer = ? WHERE user_id = ?", ("🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates", user_id))
-
-
+    # Backward-compatible alias; both modes share the same footer.
+    reset_footer(user_id)
 DEFAULT_BUTTON_SETTINGS = {
     "download_text": "📥 DOWNLOAD",
     "watch_text": "▶️ WATCH ONLINE",
@@ -400,15 +384,15 @@ async def setbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(footer) > 1000:
         await message.reply_text("Footer 1000 characters olage irabeku.", parse_mode=None)
         return
-    save_button_footer(user.id, footer.replace("\\n", "\n"))
-    await message.reply_text("✅ Button Mode footer save aagide. Normal Mode footer change agalla.", parse_mode=None)
+    save_footer(user.id, footer.replace("\\n", "\n"))
+    await message.reply_text("✅ Shared footer saved for Normal Mode and Button Mode.", parse_mode=None)
 
 
 async def showbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     user = update.effective_user
     if message and user:
-        await message.reply_text("Current Button Mode footer:\\n\\n" + get_button_footer(user.id), parse_mode=None)
+        await message.reply_text("Current shared footer (Normal + Button Mode):\\n\\n" + get_button_footer(user.id), parse_mode=None)
 
 
 async def resetbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -416,7 +400,7 @@ async def resetbuttonfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if message and user:
         reset_button_footer(user.id)
-        await message.reply_text("✅ Default Button Mode footer restore aagide.", parse_mode=None)
+        await message.reply_text("✅ Default shared footer restored for both modes.", parse_mode=None)
 
 
 async def showfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,7 +430,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
         [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
-        [InlineKeyboardButton("✍️ Normal Footer", callback_data="settings:footer"), InlineKeyboardButton("🧩 Button Footer", callback_data="settings:buttonfooter")],
+        [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
     ])
     dump_id = settings.get("dump_channel_id") or "Not set"
     await update.message.reply_text(
