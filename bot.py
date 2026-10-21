@@ -30,7 +30,7 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-DEFAULT_FOOTER = "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates\\n@SKR_updates"
+DEFAULT_FOOTER = "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\n@SKR_updates\n@SKR_updates"
 FOOTER_DB_PATH = os.getenv("FOOTER_DB_PATH", "footer.db")
 MONGO_URI = (
     os.getenv("MONGODB_URI")
@@ -135,7 +135,7 @@ def render_footer(footer: str) -> str:
         if URL_RE.fullmatch(line.strip()):
             safe = f'<a href="{html.escape(line.strip(), quote=True)}">{safe}</a>'
         rendered.append(f"<b>{safe}</b>")
-    return "\\n".join(rendered)
+    return "\n".join(rendered)
 def literal_bold(text: str) -> str:
     """Render **wrapped content** as bold HTML; keep URLs clickable."""
     safe_text = html.escape(text)
@@ -231,7 +231,7 @@ async def showfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if message and user:
         await message.reply_text(
-            "Nimma current footer:\\n\\n" + get_footer(user.id),
+            "Nimma current footer:\n\n" + get_footer(user.id),
             parse_mode=None,
         )
 
@@ -299,7 +299,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = update.effective_user.id if update.effective_user else 0
-    if context.user_data.get("post_mode", "normal") == "buttons":
+    if get_post_mode(user_id) == "buttons":
         output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
         keyboard = make_buttons(download_link, watch_link)
     else:
