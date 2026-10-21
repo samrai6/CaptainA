@@ -1,5 +1,6 @@
 import asyncio
 import html
+import io
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from threading import Thread
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
+from PIL import Image, ImageDraw, ImageFont
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -49,10 +51,11 @@ _mongo_client = None
 _mongo_footers = None
 _mongo_settings = None
 _mongo_dumps = None
+_mongo_poster_settings = None
 
 
 def init_footer_db():
-    global _mongo_client, _mongo_footers, _mongo_settings, _mongo_dumps
+    global _mongo_client, _mongo_footers, _mongo_settings, _mongo_dumps, _mongo_poster_settings
     if MONGO_URI:
         from pymongo import MongoClient
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
@@ -62,9 +65,11 @@ def init_footer_db():
         _mongo_footers = _mongo_client[db_name][collection_name]
         _mongo_settings = _mongo_client[db_name][os.getenv("MONGODB_SETTINGS_COLLECTION", "user_settings")]
         _mongo_dumps = _mongo_client[db_name][os.getenv("MONGODB_DUMPS_COLLECTION", "user_dumps")]
+        _mongo_poster_settings = _mongo_client[db_name][os.getenv("MONGODB_POSTER_SETTINGS_COLLECTION", "poster_settings")]
         _mongo_footers.create_index("user_id", unique=True)
         _mongo_settings.create_index("user_id", unique=True)
         _mongo_dumps.create_index([("user_id", 1), ("channel_id", 1)], unique=True)
+        _mongo_poster_settings.create_index("user_id", unique=True)
         logging.info("Footer storage connected to MongoDB database %s", db_name)
     else:
         with sqlite3.connect(FOOTER_DB_PATH) as conn:
@@ -78,6 +83,7 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
+            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right')")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -89,6 +95,105 @@ def init_footer_db():
                 if column not in existing_columns:
                     conn.execute(f"ALTER TABLE user_settings ADD COLUMN {column} {definition}")
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
+
+
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "@SKR_updates", "watermark_size": 28, "watermark_position": "bottom-right"}
+
+
+def get_poster_settings(user_id: int) -> dict:
+    settings = dict(DEFAULT_POSTER_SETTINGS)
+    if _mongo_poster_settings is not None:
+        row = _mongo_poster_settings.find_one({"user_id": user_id})
+        if row:
+            settings.update({key: row[key] for key in settings if key in row})
+        return settings
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
+    if row:
+        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position"], row)))
+    return settings
+
+
+def save_poster_setting(user_id: int, key: str, value):
+    if key not in DEFAULT_POSTER_SETTINGS:
+        raise ValueError("Unsupported poster setting")
+    if _mongo_poster_settings is not None:
+        _mongo_poster_settings.update_one({"user_id": user_id}, {"$set": {key: value}}, upsert=True)
+        return
+    settings = get_poster_settings(user_id)
+    settings[key] = value
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position) VALUES (?, ?, ?, ?) "
+                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position",
+                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"]))
+
+
+def search_google_image_posters(movie_name: str) -> list:
+    """Fetch candidate image URLs from Google Images without an API key; HTML can change."""
+    try:
+        query = clean_imdb_movie_title(transliterate_kannada_to_english(movie_name))
+        params = urllib.parse.urlencode({"tbm": "isch", "q": query + " movie poster"})
+        request = urllib.request.Request(
+            "https://www.google.com/search?" + params,
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            page = response.read().decode("utf-8", errors="ignore")
+        page = page.replace("\\u003d", "=").replace("\\u0026", "&").replace("\\u003a", ":").replace("\\u002f", "/").replace("&amp;", "&")
+        candidates = re.findall(r'https?://[^"\\<>\s]+', page)
+        posters, seen = [], set()
+        for candidate in candidates:
+            candidate = candidate.rstrip("),;").replace("\\/", "/")
+            low = candidate.lower()
+            if "google.com" in low or "gstatic.com" in low:
+                continue
+            if not re.search(r"\.(?:jpe?g|png|webp)(?:[?#&]|$)", low) and not any(host in low for host in ("image.tmdb.org", "media-amazon.com", "imdb.com/images")):
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            posters.append({"url": candidate, "label": "Google Images poster", "year": ""})
+            if len(posters) >= 8:
+                break
+        return posters
+    except Exception:
+        logging.warning("Google Images poster search failed for %r", movie_name, exc_info=True)
+        return []
+
+def make_watermarked_poster(image_url: str, settings: dict) -> bytes:
+    request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        raw = response.read(15 * 1024 * 1024 + 1)
+    if len(raw) > 15 * 1024 * 1024:
+        raise ValueError("Poster image is too large")
+    image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    width, height = image.size
+    draw = ImageDraw.Draw(image, "RGBA")
+    font_size = max(12, min(int(settings.get("watermark_size", 28)), max(12, width // 8)))
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+    except OSError:
+        font = ImageFont.load_default()
+    label = str(settings.get("watermark_text", "@SKR_updates"))[:80]
+    bbox = draw.textbbox((0, 0), label, font=font, stroke_width=1)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    margin = max(10, width // 40)
+    pos = settings.get("watermark_position", "bottom-right")
+    x = margin if "left" in pos else (width - text_w) // 2 if "center" in pos else width - text_w - margin
+    y = margin if pos.startswith("top") else (height - text_h) // 2 if pos == "center" else height - text_h - margin
+    draw.text((x, y), label, font=font, fill=(255, 255, 255, 245), stroke_width=max(1, font_size // 18), stroke_fill=(0, 0, 0, 170))
+    output = io.BytesIO()
+    image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+    return output.getvalue()
+
+
+def poster_input(pending: dict):
+    data = pending.get("watermarked_poster")
+    if data:
+        stream = io.BytesIO(data)
+        stream.name = "skr_poster.jpg"
+        return stream
+    return pending.get("file_id") or pending.get("poster_url")
 
 
 def get_footer(user_id: int) -> str:
@@ -654,28 +759,40 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
-    poster_url = await asyncio.to_thread(find_imdb_poster, imdb_title)
-    if poster_url:
+    # First line is used for poster search (example: "KGF 2018"); second line starts the actual caption.
+    posters = await asyncio.to_thread(search_google_image_posters, imdb_title)
+    imdb_poster = await asyncio.to_thread(find_imdb_poster, imdb_title)
+    if imdb_poster and all(item["url"] != imdb_poster for item in posters):
+        posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
+    if posters:
         context.user_data.pop("pending_manual_photo", None)
         context.user_data.pop("pending_manual_multi_photo", None)
-        context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
-    else:
-        context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
-        if settings["post_mode"] == "multi":
-            context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
+        context.user_data["pending_poster_selection"] = {
+            "posters": posters, "caption": output, "keyboard": keyboard,
+            "movie_name": movie_name, "download_link": download_link, "watch_link": watch_link,
+            "multi_links": links[:4] if settings["post_mode"] == "multi" else None,
+        }
+        rows = []
+        for i, poster in enumerate(posters):
+            label = poster["label"] + ((" (" + poster["year"] + ")") if poster.get("year") else "")
+            rows.append([InlineKeyboardButton(f"🖼️ {i + 1}. {label[:45]}", callback_data=f"posterpick:{i}")])
         await message.reply_text(
-            "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\\n"
-            "ಮೊದಲ ಸಾಲಿನ English movie name IMDb searchಗೆ ಮಾತ್ರ; caption ಎರಡನೇ ಸಾಲಿನಿಂದ ಶುರುವಾಗುತ್ತದೆ.",
-            parse_mode=None,
+            "🎬 Google Images / IMDb poster ಆಯ್ಕೆ ಮಾಡು. Search title ಮೊದಲ ಸಾಲಿನಿಂದ ತೆಗೆದುಕೊಂಡಿದ್ದೇನೆ: " + imdb_title,
+            reply_markup=InlineKeyboardMarkup(rows), parse_mode=None,
         )
         return
-    confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
-    await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
-
+    context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
+    if settings["post_mode"] == "multi":
+        context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
+    await message.reply_text(
+        "🖼️ Google Images / IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು.\n"
+        "ಮೊದಲ ಸಾಲು poster searchಗೆ (ಉದಾ: KGF 2018); ಎರಡನೇ ಸಾಲಿನಿಂದ caption ಶುರುವಾಗುತ್ತದೆ.",
+        parse_mode=None,
+    )
 
 async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
     if pending["type"] == "photo":
-        await context.bot.send_photo(chat_id=channel_id, photo=pending.get("file_id") or pending.get("poster_url"), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+        await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
     else:
         await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
 
@@ -727,6 +844,33 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     data = query.data or ""
+    if data.startswith("posterpick:"):
+        selection = context.user_data.get("pending_poster_selection")
+        if not selection:
+            await query.edit_message_text("⚠️ Poster selection expired. Movie message ಮತ್ತೆ ಕಳುಹಿಸು.")
+            return
+        try:
+            index = int(data.split(":", 1)[1])
+            poster = selection["posters"][index]
+        except (ValueError, IndexError, KeyError):
+            await query.edit_message_text("⚠️ ಈ poster ಆಯ್ಕೆ ಸಿಗಲಿಲ್ಲ. ಮತ್ತೆ search ಮಾಡು.")
+            return
+        try:
+            watermark_settings = get_poster_settings(user.id)
+            watermarked = await asyncio.to_thread(make_watermarked_poster, poster["url"], watermark_settings)
+        except Exception:
+            logging.exception("Could not download/watermark selected poster")
+            await query.edit_message_text("❌ Poster download/watermark ಆಗಲಿಲ್ಲ. ಬೇರೆ poster ಆಯ್ಕೆ ಮಾಡಿ.")
+            return
+        context.user_data["pending_dump_post"] = {
+            "type": "photo", "watermarked_poster": watermarked,
+            "caption": selection["caption"], "keyboard": selection["keyboard"]
+        }
+        context.user_data.pop("pending_poster_selection", None)
+        confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
+        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. White watermark ಸೇರಿಸಲಾಗಿದೆ: " + watermark_settings["watermark_text"])
+        await context.bot.send_message(chat_id=user.id, text="📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
+        return
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
         if mode in {"normal", "buttons", "multi", "postlink"}:
@@ -924,6 +1068,57 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("✅ Post Dump Channel‌ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.")
 
 
+async def watermark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    s = get_poster_settings(user.id)
+    await message.reply_text(
+        f"Current watermark: {s['watermark_text']}\nSize: {s['watermark_size']}\nPosition: {s['watermark_position']}\n\n"
+        "/setwatermark @SKR_updates\n/setwatermarksize 28\n/setwatermarkposition bottom-right\n"
+        "Positions: bottom-right, bottom-left, top-right, top-left, center", parse_mode=None)
+
+
+async def setwatermark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    value = " ".join(context.args).strip()
+    if not message or not user:
+        return
+    if not value or len(value) > 80:
+        await message.reply_text("Format: /setwatermark @SKR_updates", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_text", value)
+    await message.reply_text("✅ Watermark text save ಆಯಿತು. ಹೊಸ posters ಮೇಲೆ white fontನಲ್ಲಿ ಬರುತ್ತದೆ.", parse_mode=None)
+
+
+async def setwatermarksize_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    try:
+        size = int(context.args[0]) if context.args else 0
+    except ValueError:
+        size = 0
+    if size < 12 or size > 100:
+        await message.reply_text("Format: /setwatermarksize 28 (12-100)", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_size", size)
+    await message.reply_text(f"✅ Watermark font size {size} save ಆಯಿತು.", parse_mode=None)
+
+
+async def setwatermarkposition_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    allowed = {"bottom-right", "bottom-left", "top-right", "top-left", "center"}
+    value = "-".join(context.args).strip().lower()
+    if not message or not user:
+        return
+    if value not in allowed:
+        await message.reply_text("Format: /setwatermarkposition bottom-right\nOptions: bottom-right, bottom-left, top-right, top-left, center", parse_mode=None)
+        return
+    save_poster_setting(user.id, "watermark_position", value)
+    await message.reply_text("✅ Watermark position save ಆಯಿತು.", parse_mode=None)
+
+
 async def normal_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_message:
         user = update.effective_user
@@ -1051,6 +1246,10 @@ def main():
     app.add_handler(CommandHandler("setdownloadtext", setdownloadtext))
     app.add_handler(CommandHandler("setwatchtext", setwatchtext))
     app.add_handler(CommandHandler("setupdatesbutton", setupdatesbutton))
+    app.add_handler(CommandHandler("watermark", watermark_command))
+    app.add_handler(CommandHandler("setwatermark", setwatermark_command))
+    app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
+    app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
