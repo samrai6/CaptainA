@@ -306,7 +306,9 @@ def find_imdb_poster(movie_name: str):
 
 
 def parse_caption(text: str):
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    # Users sometimes paste captions containing literal \\n markers; convert them to real line breaks first.
+    text = (text or "").replace("\\n", "\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     if len(lines) < 2:
         return None, None, None
     movie_name = lines[0]
