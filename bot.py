@@ -342,7 +342,7 @@ def watermark_uploaded_photo(raw: bytes, settings: dict) -> bytes:
         draw.text((x, y), label, font=font, fill=(255, 255, 255, 245),
                   stroke_width=max(1, font_size // 18), stroke_fill=(0, 0, 0, 170))
     output = io.BytesIO()
-    image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+    image.save(output, format="PNG", optimize=True)
     return output.getvalue()
 
 
@@ -394,7 +394,7 @@ def poster_input(pending: dict):
     data = pending.get("watermarked_poster")
     if data:
         stream = io.BytesIO(data)
-        stream.name = "skr_poster.jpg"
+        stream.name = "skr_poster.png"
         return stream
     return pending.get("file_id") or pending.get("poster_url")
 
@@ -1045,7 +1045,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
     if pending["type"] == "photo":
-        await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+        if pending.get("watermarked_poster"):
+            # Telegram send_photo recompresses images. Send watermarked PNG as a document
+            # so the processed image is delivered losslessly at its current resolution.
+            await context.bot.send_document(
+                chat_id=channel_id,
+                document=poster_input(pending),
+                caption=pending["caption"],
+                parse_mode=ParseMode.HTML,
+                reply_markup=pending.get("keyboard"),
+            )
+        else:
+            await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
     else:
         await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
 
