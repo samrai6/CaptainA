@@ -2,6 +2,7 @@ import html
 import logging
 import os
 import re
+import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -29,16 +30,40 @@ HELP_TEXT = (
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 DEFAULT_FOOTER = "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates\\n@SKR_updates"
 FOOTER_DB_PATH = os.getenv("FOOTER_DB_PATH", "footer.db")
+MONGO_URI = (
+    os.getenv("MONGODB_URI")
+    or os.getenv("MONGO_URI")
+    or os.getenv("MONGO_URL")
+    or os.getenv("MONGODB_URL")
+    or ""
+).strip()
+_mongo_client = None
+_mongo_footers = None
 
 
 def init_footer_db():
-    with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
-        )
+    global _mongo_client, _mongo_footers
+    if MONGO_URI:
+        from pymongo import MongoClient
+        _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
+        _mongo_client.admin.command("ping")
+        db_name = os.getenv("MONGODB_DATABASE", "skr_photo_caption_bot")
+        collection_name = os.getenv("MONGODB_FOOTER_COLLECTION", "user_footers")
+        _mongo_footers = _mongo_client[db_name][collection_name]
+        _mongo_footers.create_index("user_id", unique=True)
+        logging.info("Footer storage connected to MongoDB database %s", db_name)
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
+            )
+        logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
 def get_footer(user_id: int) -> str:
+    if _mongo_footers is not None:
+        row = _mongo_footers.find_one({"user_id": user_id}, {"footer": 1})
+        return row["footer"] if row and "footer" in row else DEFAULT_FOOTER
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         row = conn.execute(
             "SELECT footer FROM user_footers WHERE user_id = ?", (user_id,)
@@ -47,6 +72,13 @@ def get_footer(user_id: int) -> str:
 
 
 def save_footer(user_id: int, footer: str):
+    if _mongo_footers is not None:
+        _mongo_footers.update_one(
+            {"user_id": user_id},
+            {"$set": {"footer": footer}},
+            upsert=True,
+        )
+        return
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         conn.execute(
             "INSERT INTO user_footers (user_id, footer) VALUES (?, ?) "
@@ -56,6 +88,9 @@ def save_footer(user_id: int, footer: str):
 
 
 def reset_footer(user_id: int):
+    if _mongo_footers is not None:
+        _mongo_footers.delete_one({"user_id": user_id})
+        return
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         conn.execute("DELETE FROM user_footers WHERE user_id = ?", (user_id,))
 
