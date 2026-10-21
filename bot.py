@@ -63,8 +63,17 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
             )
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal')"
+                "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '⬇️ Download', watch_text TEXT NOT NULL DEFAULT '▶️ Watch Online', updates_text TEXT NOT NULL DEFAULT '📢 Join Updates Channel', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates')"
             )
+            existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
+            for column, definition in [
+                ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
+                ("watch_text", "TEXT NOT NULL DEFAULT '▶️ Watch Online'"),
+                ("updates_text", "TEXT NOT NULL DEFAULT '📢 Join Updates Channel'"),
+                ("updates_url", "TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates'"),
+            ]:
+                if column not in existing_columns:
+                    conn.execute(f"ALTER TABLE user_settings ADD COLUMN {column} {definition}")
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
@@ -103,29 +112,57 @@ def reset_footer(user_id: int):
         conn.execute("DELETE FROM user_footers WHERE user_id = ?", (user_id,))
 
 
-def get_post_mode(user_id: int) -> str:
+DEFAULT_BUTTON_SETTINGS = {
+    "download_text": "⬇️ Download",
+    "watch_text": "▶️ Watch Online",
+    "updates_text": "📢 Join Updates Channel",
+    "updates_url": "https://t.me/SKR_updates",
+}
+
+
+def get_user_settings(user_id: int) -> dict:
+    settings = dict(DEFAULT_BUTTON_SETTINGS)
+    settings["post_mode"] = "normal"
     if _mongo_settings is not None:
-        row = _mongo_settings.find_one({"user_id": user_id}, {"post_mode": 1})
-        return row.get("post_mode", "normal") if row else "normal"
+        row = _mongo_settings.find_one({"user_id": user_id})
+        if row:
+            settings.update({key: row[key] for key in settings if key in row})
+        return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         row = conn.execute(
-            "SELECT post_mode FROM user_settings WHERE user_id = ?", (user_id,)
+            "SELECT post_mode, download_text, watch_text, updates_text, updates_url FROM user_settings WHERE user_id = ?",
+            (user_id,),
         ).fetchone()
-    return row[0] if row else "normal"
+    if row:
+        keys = ["post_mode", "download_text", "watch_text", "updates_text", "updates_url"]
+        settings.update(dict(zip(keys, row)))
+    return settings
 
 
-def save_post_mode(user_id: int, mode: str):
+def save_setting(user_id: int, key: str, value: str):
+    allowed = set(DEFAULT_BUTTON_SETTINGS) | {"post_mode"}
+    if key not in allowed:
+        raise ValueError("Unsupported setting")
     if _mongo_settings is not None:
         _mongo_settings.update_one(
-            {"user_id": user_id}, {"$set": {"post_mode": mode}}, upsert=True
+            {"user_id": user_id}, {"$set": {key: value}}, upsert=True
         )
         return
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        settings = get_user_settings(user_id)
+        settings[key] = value
         conn.execute(
-            "INSERT INTO user_settings (user_id, post_mode) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET post_mode = excluded.post_mode",
-            (user_id, mode),
+            "INSERT INTO user_settings (user_id, post_mode, download_text, watch_text, updates_text, updates_url) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET "
+            "post_mode=excluded.post_mode, download_text=excluded.download_text, "
+            "watch_text=excluded.watch_text, updates_text=excluded.updates_text, updates_url=excluded.updates_url",
+            (user_id, settings["post_mode"], settings["download_text"], settings["watch_text"],
+             settings["updates_text"], settings["updates_url"]),
         )
+
+
+def get_post_mode(user_id: int) -> str:
+    return get_user_settings(user_id)["post_mode"]
 
 
 def render_footer(footer: str) -> str:
@@ -192,14 +229,14 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
     )
 
 
-def make_buttons(download_link: str, watch_link: str) -> InlineKeyboardMarkup:
+def make_buttons(download_link: str, watch_link: str, settings: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⬇️ Download", url=download_link),
-            InlineKeyboardButton("▶️ Watch Online", url=watch_link),
+            InlineKeyboardButton(settings["download_text"], url=download_link),
+            InlineKeyboardButton(settings["watch_text"], url=watch_link),
         ],
         [
-            InlineKeyboardButton("📢 Join Updates Channel", url="https://t.me/SKR_updates"),
+            InlineKeyboardButton(settings["updates_text"], url=settings["updates_url"]),
         ],
     ])
 
@@ -275,7 +312,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else 0
     if get_post_mode(user_id) == "buttons":
         caption = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
-        keyboard = make_buttons(download_link, watch_link)
+        keyboard = make_buttons(download_link, watch_link, get_user_settings(user_id))
     else:
         caption = make_caption(movie_name, download_link, get_footer(user_id))
         keyboard = None
@@ -301,7 +338,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id if update.effective_user else 0
     if get_post_mode(user_id) == "buttons":
         output = make_buttons_caption(movie_name, download_link, watch_link, get_footer(user_id))
-        keyboard = make_buttons(download_link, watch_link)
+        keyboard = make_buttons(download_link, watch_link, get_user_settings(user_id))
     else:
         output = make_caption(movie_name, download_link, get_footer(user_id))
         keyboard = None
@@ -338,6 +375,67 @@ async def buttons_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def buttonsettings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    if not message or not user:
+        return
+    s = get_user_settings(user.id)
+    await message.reply_text(
+        "🔧 Your button settings\\n\\n"
+        f"Download button: {s['download_text']}\\n"
+        f"Watch button: {s['watch_text']}\\n"
+        f"Updates button: {s['updates_text']}\\n"
+        f"Updates URL: {s['updates_url']}\\n\\n"
+        "Update them separately with these commands:\\n"
+        "/setdownloadtext New Download Label\\n"
+        "/setwatchtext New Watch Label\\n"
+        "/setupdatesbutton Button Label | https://t.me/yourchannel\\n\\n"
+        "Download and Watch URLs come from each movie message (short link first, stream link second).",
+        parse_mode=None,
+    )
+
+
+async def setdownloadtext(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    value = " ".join(context.args).strip()
+    if not message or not user:
+        return
+    if not value or len(value) > 60:
+        await message.reply_text("Format: /setdownloadtext ⬇️ Download", parse_mode=None)
+        return
+    save_setting(user.id, "download_text", value)
+    await message.reply_text("✅ Download button label saved.", parse_mode=None)
+
+
+async def setwatchtext(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    value = " ".join(context.args).strip()
+    if not message or not user:
+        return
+    if not value or len(value) > 60:
+        await message.reply_text("Format: /setwatchtext ▶️ Watch Online", parse_mode=None)
+        return
+    save_setting(user.id, "watch_text", value)
+    await message.reply_text("✅ Watch button label saved.", parse_mode=None)
+
+
+async def setupdatesbutton(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message, user = update.effective_message, update.effective_user
+    raw = " ".join(context.args).strip()
+    if not message or not user:
+        return
+    if "|" not in raw:
+        await message.reply_text("Format: /setupdatesbutton 📢 Join Updates Channel | https://t.me/SKR_updates", parse_mode=None)
+        return
+    label, url = (part.strip() for part in raw.split("|", 1))
+    if not label or len(label) > 60 or not URL_RE.fullmatch(url):
+        await message.reply_text("Button label and valid http(s) URL beku.", parse_mode=None)
+        return
+    save_setting(user.id, "updates_text", label)
+    save_setting(user.id, "updates_url", url)
+    await message.reply_text("✅ Updates button label and link saved separately from movie links.", parse_mode=None)
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -369,6 +467,10 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("normal", normal_mode))
     app.add_handler(CommandHandler("buttons", buttons_mode))
+    app.add_handler(CommandHandler("buttonsettings", buttonsettings))
+    app.add_handler(CommandHandler("setdownloadtext", setdownloadtext))
+    app.add_handler(CommandHandler("setwatchtext", setwatchtext))
+    app.add_handler(CommandHandler("setupdatesbutton", setupdatesbutton))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
