@@ -562,9 +562,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
     else:
         context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
+        if settings["post_mode"] == "multi":
+            _, quality_links = parse_multi_caption(message.text)
+            context.user_data["pending_manual_multi_photo"] = (movie_name, quality_links)
         await message.reply_text(
             "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\n"
-            "ನೀನು ಕಳುಹಿಸಿದ photoಗೆ ಇದೇ Movie Name, Shortlink ಮತ್ತು Stream Link ಸೇರಿಸುತ್ತೇನೆ.",
+            "ನೀನು ಕಳುಹಿಸಿದ photoಗೆ ಇದೇ Movie Name ಮತ್ತು links ಸೇರಿಸುತ್ತೇನೆ.",
             parse_mode=None,
         )
         return
@@ -582,7 +585,8 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = data.split(":", 1)[1]
         if mode in {"normal", "buttons", "multi"}:
             save_post_mode(user.id, mode)
-            await query.edit_message_text("✅ Mode changed to " + ("Normal Mode" if mode == "normal" else "Button Mode") + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
+            mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode"}[mode]
+            await query.edit_message_text("✅ Mode changed to " + mode_name + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
     if data == "settings:dump":
         context.user_data["awaiting_dump_channel"] = True
