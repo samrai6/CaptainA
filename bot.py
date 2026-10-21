@@ -258,69 +258,64 @@ def remove_non_title_text(image: Image.Image, movie_name: str) -> Image.Image:
 
 
 def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
-    """Use Gemini image editing when GEMINI_API_KEY is configured; return None on failure."""
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return None
+    """Try free public Hugging Face Spaces image editing without an API key."""
     try:
-        with Image.open(io.BytesIO(raw)) as source:
-            fmt = "PNG" if source.format == "PNG" else "JPEG"
-            if fmt == "JPEG":
-                converted = io.BytesIO()
-                source.convert("RGB").save(converted, format="JPEG", quality=92)
-                image_bytes = converted.getvalue()
-            else:
-                converted = io.BytesIO()
-                source.save(converted, format="PNG")
-                image_bytes = converted.getvalue()
+        import tempfile
+        from pathlib import Path
+        from gradio_client import Client, handle_file
 
-        prompt = (
-            "Edit this existing movie poster into a polished, premium cinematic fan poster. "
-            "Keep the original actors, faces, costumes, composition, and recognizable movie artwork faithful. "
-            "Improve lighting, contrast, sharpness, color grading, and background atmosphere tastefully. "
-            "Remove promotional text, credits, taglines, logos, and unrelated writing. "
-            f"Preserve only the movie title if it is clearly present: {movie_name}. "
-            "Do not invent extra text, do not add any watermark, and do not crop off heads or important subjects. "
-            "Return only the edited image."
-        )
-        payload = {
-            "model": os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1"),
-            "input": [
-                {"type": "image", "mime_type": "image/png" if fmt == "PNG" else "image/jpeg",
-                 "data": __import__("base64").b64encode(image_bytes).decode("ascii")},
-                {"type": "text", "text": prompt},
-            ],
-        }
-        request = urllib.request.Request(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=90) as response:
-            result = json.loads(response.read().decode("utf-8"))
+        # This public Space provides FLUX.1 Kontext editing through Gradio.
+        # It uses shared community GPU capacity, so it may be busy or rate-limited.
+        with tempfile.TemporaryDirectory(prefix="skr_poster_") as temp_dir:
+            input_path = Path(temp_dir) / "poster_input.png"
+            with Image.open(io.BytesIO(raw)) as source:
+                source.convert("RGB").save(input_path, format="PNG")
 
-        output_image = result.get("output_image") or {}
-        encoded = output_image.get("data")
-        if not encoded:
-            for step in result.get("steps", []):
-                if step.get("type") != "model_output":
-                    continue
-                for part in step.get("content", []):
-                    if part.get("type") == "image" and part.get("data"):
-                        encoded = part["data"]
-                        break
-                if encoded:
-                    break
-        if encoded:
-            import base64
-            edited = base64.b64decode(encoded)
-            if edited:
-                logging.info("Gemini AI poster edit succeeded for %r", movie_name)
-                return edited
-        logging.warning("Gemini did not return an edited image for %r", movie_name)
+            prompt = (
+                "Professionally enhance this existing movie poster for a cinematic look. "
+                "Preserve the same actors, faces, costumes, identity, composition, and important subjects. "
+                "Improve lighting, contrast, detail, sharpness, and cinematic color grading. "
+                "Remove small promotional credits, taglines, and unrelated text where possible, "
+                "but preserve the actual movie title and all recognizable artwork. "
+                f"The movie is: {movie_name}. Do not add any new text, logos, or watermark. "
+                "Do not crop heads or important subjects."
+            )
+            client = Client("black-forest-labs/FLUX.1-Kontext-Dev", verbose=False)
+            result = client.predict(
+                input_image=handle_file(str(input_path)),
+                prompt=prompt,
+                seed=42,
+                randomize_seed=True,
+                guidance_scale=2.5,
+                steps=12,
+                api_name="/infer",
+            )
+            image_result = result[0] if isinstance(result, (tuple, list)) else result
+            result_path = None
+            if isinstance(image_result, str):
+                result_path = image_result
+            elif isinstance(image_result, dict):
+                result_path = image_result.get("path") or image_result.get("name")
+                if not result_path and image_result.get("url"):
+                    image_url = image_result["url"]
+                    request = urllib.request.Request(
+                        image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"}
+                    )
+                    with urllib.request.urlopen(request, timeout=45) as response:
+                        edited = response.read(15 * 1024 * 1024 + 1)
+                    if edited and len(edited) <= 15 * 1024 * 1024:
+                        logging.info("Free public-space AI poster edit succeeded for %r", movie_name)
+                        return edited
+            if result_path and os.path.isfile(result_path):
+                with open(result_path, "rb") as image_file:
+                    edited = image_file.read(15 * 1024 * 1024 + 1)
+                if edited and len(edited) <= 15 * 1024 * 1024:
+                    logging.info("Free public-space AI poster edit succeeded for %r", movie_name)
+                    return edited
+        logging.warning("Free public-space AI returned no usable image for %r", movie_name)
     except Exception:
-        logging.warning("Gemini AI poster edit failed; using normal poster cleanup", exc_info=True)
+        # Keep poster creation working if the public Space is down, busy, or out of quota.
+        logging.warning("Free public-space AI poster edit failed; using OCR cleanup", exc_info=True)
     return None
 
 
@@ -335,7 +330,7 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         try:
             image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
         except Exception:
-            logging.warning("Could not decode Gemini output; using original poster", exc_info=True)
+            logging.warning("Could not decode AI output; using original poster", exc_info=True)
             image = Image.open(io.BytesIO(raw)).convert("RGBA")
             if movie_name:
                 image = remove_non_title_text(image, movie_name)
