@@ -257,16 +257,93 @@ def remove_non_title_text(image: Image.Image, movie_name: str) -> Image.Image:
         return image
 
 
+def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
+    """Use Gemini image editing when GEMINI_API_KEY is configured; return None on failure."""
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            fmt = "PNG" if source.format == "PNG" else "JPEG"
+            if fmt == "JPEG":
+                converted = io.BytesIO()
+                source.convert("RGB").save(converted, format="JPEG", quality=92)
+                image_bytes = converted.getvalue()
+            else:
+                converted = io.BytesIO()
+                source.save(converted, format="PNG")
+                image_bytes = converted.getvalue()
+
+        prompt = (
+            "Edit this existing movie poster into a polished, premium cinematic fan poster. "
+            "Keep the original actors, faces, costumes, composition, and recognizable movie artwork faithful. "
+            "Improve lighting, contrast, sharpness, color grading, and background atmosphere tastefully. "
+            "Remove promotional text, credits, taglines, logos, and unrelated writing. "
+            f"Preserve only the movie title if it is clearly present: {movie_name}. "
+            "Do not invent extra text, do not add any watermark, and do not crop off heads or important subjects. "
+            "Return only the edited image."
+        )
+        payload = {
+            "model": os.getenv("GEMINI_IMAGE_MODEL", "gemini-nano-banana-2.1"),
+            "input": [
+                {"type": "image", "mime_type": "image/png" if fmt == "PNG" else "image/jpeg",
+                 "data": __import__("base64").b64encode(image_bytes).decode("ascii")},
+                {"type": "text", "text": prompt},
+            ],
+        }
+        request = urllib.request.Request(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.loads(response.read().decode("utf-8"))
+
+        output_image = result.get("output_image") or {}
+        encoded = output_image.get("data")
+        if not encoded:
+            for step in result.get("steps", []):
+                if step.get("type") != "model_output":
+                    continue
+                for part in step.get("content", []):
+                    if part.get("type") == "image" and part.get("data"):
+                        encoded = part["data"]
+                        break
+                if encoded:
+                    break
+        if encoded:
+            import base64
+            edited = base64.b64decode(encoded)
+            if edited:
+                logging.info("Gemini AI poster edit succeeded for %r", movie_name)
+                return edited
+        logging.warning("Gemini did not return an edited image for %r", movie_name)
+    except Exception:
+        logging.warning("Gemini AI poster edit failed; using normal poster cleanup", exc_info=True)
+    return None
+
+
 def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = "") -> bytes:
     request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
     with urllib.request.urlopen(request, timeout=15) as response:
         raw = response.read(15 * 1024 * 1024 + 1)
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("Poster image is too large")
-    image = Image.open(io.BytesIO(raw)).convert("RGBA")
-    if movie_name:
-        image = remove_non_title_text(image, movie_name)
-    # Keep the original poster dimensions; do not force a fixed output size.
+    edited_raw = ai_edit_poster(raw, movie_name) if movie_name else None
+    if edited_raw:
+        try:
+            image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
+        except Exception:
+            logging.warning("Could not decode Gemini output; using original poster", exc_info=True)
+            image = Image.open(io.BytesIO(raw)).convert("RGBA")
+            if movie_name:
+                image = remove_non_title_text(image, movie_name)
+    else:
+        image = Image.open(io.BytesIO(raw)).convert("RGBA")
+        if movie_name:
+            image = remove_non_title_text(image, movie_name)
+    # Keep the original/generated poster dimensions; do not force a fixed output size.
     width, height = image.size
     draw = ImageDraw.Draw(image, "RGBA")
     font_size = max(12, min(int(settings.get("watermark_size", 28)), max(12, width // 8)))
