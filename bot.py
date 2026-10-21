@@ -140,14 +140,14 @@ def search_google_image_posters(movie_name: str) -> list:
         with urllib.request.urlopen(request, timeout=10) as response:
             page = response.read().decode("utf-8", errors="ignore")
         page = page.replace("\\u003d", "=").replace("\\u0026", "&").replace("\\u003a", ":").replace("\\u002f", "/").replace("&amp;", "&")
-        candidates = re.findall(r'https?://[^"\\\\<>\\s]+', page)
+        candidates = re.findall(r'https?://[^"\\<>\s]+', page)
         posters, seen = [], set()
         for candidate in candidates:
             candidate = candidate.rstrip("),;").replace("\\/", "/")
             low = candidate.lower()
             if "google.com" in low or "gstatic.com" in low:
                 continue
-            if not re.search(r"\\.(?:jpe?g|png|webp)(?:[?#&]|$)", low) and not any(host in low for host in ("image.tmdb.org", "media-amazon.com", "imdb.com/images")):
+            if not re.search(r"\.(?:jpe?g|png|webp)(?:[?#&]|$)", low) and not any(host in low for host in ("image.tmdb.org", "media-amazon.com", "imdb.com/images")):
                 continue
             if candidate in seen:
                 continue
