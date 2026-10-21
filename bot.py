@@ -27,6 +27,47 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+DEFAULT_FOOTER = "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates\\n@SKR_updates"
+FOOTER_DB_PATH = os.getenv("FOOTER_DB_PATH", "footer.db")
+
+
+def init_footer_db():
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_footers (user_id INTEGER PRIMARY KEY, footer TEXT NOT NULL)"
+        )
+
+
+def get_footer(user_id: int) -> str:
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT footer FROM user_footers WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return row[0] if row else DEFAULT_FOOTER
+
+
+def save_footer(user_id: int, footer: str):
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO user_footers (user_id, footer) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET footer = excluded.footer",
+            (user_id, footer),
+        )
+
+
+def reset_footer(user_id: int):
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("DELETE FROM user_footers WHERE user_id = ?", (user_id,))
+
+
+def render_footer(footer: str) -> str:
+    rendered = []
+    for line in footer.splitlines():
+        safe = html.escape(line)
+        if URL_RE.fullmatch(line.strip()):
+            safe = f'<a href="{html.escape(line.strip(), quote=True)}">{safe}</a>'
+        rendered.append(f"<b>{safe}</b>")
+    return "\\n".join(rendered)
 def literal_bold(text: str) -> str:
     """Render **wrapped content** as bold HTML; keep URLs clickable."""
     safe_text = html.escape(text)
@@ -35,7 +76,7 @@ def literal_bold(text: str) -> str:
     return f"<b>{safe_text}</b>"
 
 
-def make_caption(movie_name: str, link: str) -> str:
+def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     safe_link = html.escape(link)
     return (
@@ -48,9 +89,7 @@ def make_caption(movie_name: str, link: str) -> str:
         f"{literal_bold('𝗛𝗢𝗪')} {literal_bold('𝗧𝗢')} {literal_bold('𝗢𝗣𝗘𝗡')} {literal_bold('𝗟𝗶𝗡𝗞🔗👇👇')}\n"
         f"{literal_bold('https://t.me/Hwotoopenlink')}\n"
         f"{literal_bold('══════════════════════')}\n"
-        f"{literal_bold('🔰𝐉𝐨𝐢𝐧')} {literal_bold(':-')} {literal_bold('🌟🌟')}\n"
-        f"{literal_bold('@SKR_updates')}\n"
-        f"{literal_bold('@SKR_updates')}"
+        f"{render_footer(footer)}"
     )
 
 
@@ -68,6 +107,46 @@ def parse_caption(text: str):
     if not movie_name or not link:
         return None, None
     return movie_name, link
+
+
+async def setfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user:
+        return
+    footer = " ".join(context.args).strip()
+    if not footer:
+        await message.reply_text(
+            "Footer set maadalu format: /setfooter 🔰 Join :- @YourChannel",
+            parse_mode=None,
+        )
+        return
+    if len(footer) > 1000:
+        await message.reply_text("Footer 1000 characters olage irabeku.", parse_mode=None)
+        return
+    save_footer(user.id, footer)
+    await message.reply_text(
+        "✅ Nimma footer save aagide. Idu nimma captions-ge maatra apply aagutte.",
+        parse_mode=None,
+    )
+
+
+async def showfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if message and user:
+        await message.reply_text(
+            "Nimma current footer:\\n\\n" + get_footer(user.id),
+            parse_mode=None,
+        )
+
+
+async def resetfooter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if message and user:
+        reset_footer(user.id)
+        await message.reply_text("✅ Default footer restore aagide.", parse_mode=None)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,7 +179,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await message.reply_photo(
         photo=message.photo[-1].file_id,
-        caption=make_caption(movie_name, link),
+        caption=make_caption(movie_name, link, get_footer(update.effective_user.id if update.effective_user else 0)),
         parse_mode=ParseMode.HTML,
         reply_parameters=reply_parameters,
     )
@@ -116,7 +195,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await message.reply_text(
-        make_caption(movie_name, link),
+        make_caption(movie_name, link, get_footer(update.effective_user.id if update.effective_user else 0)),
         parse_mode=ParseMode.HTML,
         reply_parameters=ReplyParameters(message_id=message.message_id),
     )
@@ -143,9 +222,13 @@ def start_health_server():
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN environment variable is missing.")
+    init_footer_db()
     start_health_server()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setfooter", setfooter))
+    app.add_handler(CommandHandler("footer", showfooter))
+    app.add_handler(CommandHandler("resetfooter", resetfooter)
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
