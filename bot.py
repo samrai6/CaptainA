@@ -343,6 +343,24 @@ def parse_multi_caption(text: str):
     return (movie_name, links[:4]) if movie_name and links else (None, [])
 
 
+def parse_text_submission(text: str):
+    """First line is IMDb-only search title; second line starts the actual caption."""
+    text = (text or "").replace("\\n", "\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 3:
+        return None, None, []
+    imdb_title = lines[0]
+    caption_title = lines[1]
+    links = []
+    for line in lines[2:]:
+        match = URL_RE.search(line)
+        if match:
+            link = match.group(0).strip("*").rstrip(".,);]*_")
+            if link not in links:
+                links.append(link)
+    return (imdb_title, caption_title, links) if links else (None, None, [])
+
+
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     footer = footer.replace("\\n", "\n")
@@ -538,14 +556,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("awaiting_dump_channel", None)
         await message.reply_text("✅ Nimma Dump Channel ID save aagide. Idu nimge maatra apply aagutte; bere users tamma ID set maadabahudu. Redeploy aadru MongoDB alli save irutte. Bot channel admin aagirabeku.", parse_mode=None)
         return
-    movie_name, download_link, watch_link = parse_caption(message.text)
-    if not movie_name or not download_link:
+    imdb_title, movie_name, links = parse_text_submission(message.text)
+    if not imdb_title or not movie_name or not links:
         return
+    download_link = links[0]
+    watch_link = links[1] if len(links) > 1 else links[0]
     settings = get_user_settings(user.id)
     if settings["post_mode"] == "multi":
-        movie_name, quality_links = parse_multi_caption(message.text)
-        if not movie_name or not quality_links:
-            return
+        quality_links = links[:4]
         output = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
         keyboard = make_multi_buttons(quality_links, settings)
     elif settings["post_mode"] == "buttons":
@@ -556,18 +574,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
-    poster_url = await asyncio.to_thread(find_imdb_poster, movie_name)
+    poster_url = await asyncio.to_thread(find_imdb_poster, imdb_title)
     if poster_url:
         context.user_data.pop("pending_manual_photo", None)
+        context.user_data.pop("pending_manual_multi_photo", None)
         context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
     else:
         context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
         if settings["post_mode"] == "multi":
-            _, quality_links = parse_multi_caption(message.text)
-            context.user_data["pending_manual_multi_photo"] = (movie_name, quality_links)
+            context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
         await message.reply_text(
-            "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\n"
-            "ನೀನು ಕಳುಹಿಸಿದ photoಗೆ ಇದೇ Movie Name ಮತ್ತು links ಸೇರಿಸುತ್ತೇನೆ.",
+            "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\\n"
+            "ಮೊದಲ ಸಾಲಿನ English movie name IMDb searchಗೆ ಮಾತ್ರ; caption ಎರಡನೇ ಸಾಲಿನಿಂದ ಶುರುವಾಗುತ್ತದೆ.",
             parse_mode=None,
         )
         return
