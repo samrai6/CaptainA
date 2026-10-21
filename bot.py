@@ -752,28 +752,40 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
-    poster_url = await asyncio.to_thread(find_imdb_poster, imdb_title)
-    if poster_url:
+    # First line is used for poster search (example: "KGF 2018"); second line starts the actual caption.
+    posters = await asyncio.to_thread(search_tmdb_posters, imdb_title)
+    imdb_poster = await asyncio.to_thread(find_imdb_poster, imdb_title)
+    if imdb_poster and all(item["url"] != imdb_poster for item in posters):
+        posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
+    if posters:
         context.user_data.pop("pending_manual_photo", None)
         context.user_data.pop("pending_manual_multi_photo", None)
-        context.user_data["pending_dump_post"] = {"type": "photo", "poster_url": poster_url, "caption": output, "keyboard": keyboard}
-    else:
-        context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
-        if settings["post_mode"] == "multi":
-            context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
+        context.user_data["pending_poster_selection"] = {
+            "posters": posters, "caption": output, "keyboard": keyboard,
+            "movie_name": movie_name, "download_link": download_link, "watch_link": watch_link,
+            "multi_links": links[:4] if settings["post_mode"] == "multi" else None,
+        }
+        rows = []
+        for i, poster in enumerate(posters):
+            label = poster["label"] + ((" (" + poster["year"] + ")") if poster.get("year") else "")
+            rows.append([InlineKeyboardButton(f"🖼️ {i + 1}. {label[:45]}", callback_data=f"posterpick:{i}")])
         await message.reply_text(
-            "🖼️ IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು; photo caption ಹಾಕುವ ಅಗತ್ಯವಿಲ್ಲ.\\n"
-            "ಮೊದಲ ಸಾಲಿನ English movie name IMDb searchಗೆ ಮಾತ್ರ; caption ಎರಡನೇ ಸಾಲಿನಿಂದ ಶುರುವಾಗುತ್ತದೆ.",
-            parse_mode=None,
+            "🎬 Poster ಆಯ್ಕೆ ಮಾಡು. Search title ಮೊದಲ ಸಾಲಿನಿಂದ ತೆಗೆದುಕೊಂಡಿದ್ದೇನೆ: " + imdb_title,
+            reply_markup=InlineKeyboardMarkup(rows), parse_mode=None,
         )
         return
-    confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
-    await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
-
+    context.user_data["pending_manual_photo"] = (movie_name, download_link, watch_link)
+    if settings["post_mode"] == "multi":
+        context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
+    await message.reply_text(
+        "🖼️ TMDB/IMDb poster ಸಿಗಲಿಲ್ಲ. TMDB_API_KEY set ಮಾಡಿರುವುದನ್ನು ಪರಿಶೀಲಿಸು ಅಥವಾ ನೀನೇ photo ಕಳುಹಿಸು.\n"
+        "ಮೊದಲ ಸಾಲು poster searchಗೆ (ಉದಾ: KGF 2018); ಎರಡನೇ ಸಾಲಿನಿಂದ caption ಶುರುವಾಗುತ್ತದೆ.",
+        parse_mode=None,
+    )
 
 async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
     if pending["type"] == "photo":
-        await context.bot.send_photo(chat_id=channel_id, photo=pending.get("file_id") or pending.get("poster_url"), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
+        await context.bot.send_photo(chat_id=channel_id, photo=poster_input(pending), caption=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
     else:
         await context.bot.send_message(chat_id=channel_id, text=pending["caption"], parse_mode=ParseMode.HTML, reply_markup=pending.get("keyboard"))
 
@@ -825,6 +837,33 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer()
     data = query.data or ""
+    if data.startswith("posterpick:"):
+        selection = context.user_data.get("pending_poster_selection")
+        if not selection:
+            await query.edit_message_text("⚠️ Poster selection expired. Movie message ಮತ್ತೆ ಕಳುಹಿಸು.")
+            return
+        try:
+            index = int(data.split(":", 1)[1])
+            poster = selection["posters"][index]
+        except (ValueError, IndexError, KeyError):
+            await query.edit_message_text("⚠️ ಈ poster ಆಯ್ಕೆ ಸಿಗಲಿಲ್ಲ. ಮತ್ತೆ search ಮಾಡು.")
+            return
+        try:
+            watermark_settings = get_poster_settings(user.id)
+            watermarked = await asyncio.to_thread(make_watermarked_poster, poster["url"], watermark_settings)
+        except Exception:
+            logging.exception("Could not download/watermark selected poster")
+            await query.edit_message_text("❌ Poster download/watermark ಆಗಲಿಲ್ಲ. ಬೇರೆ poster ಆಯ್ಕೆ ಮಾಡಿ.")
+            return
+        context.user_data["pending_dump_post"] = {
+            "type": "photo", "watermarked_poster": watermarked,
+            "caption": selection["caption"], "keyboard": selection["keyboard"]
+        }
+        context.user_data.pop("pending_poster_selection", None)
+        confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
+        await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. White watermark ಸೇರಿಸಲಾಗಿದೆ: " + watermark_settings["watermark_text"])
+        await context.bot.send_message(chat_id=user.id, text="📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
+        return
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
         if mode in {"normal", "buttons", "multi", "postlink"}:
