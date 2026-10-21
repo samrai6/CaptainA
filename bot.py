@@ -1,8 +1,10 @@
+import html
 import logging
 import os
 import re
 
 from telegram import ReplyParameters, Update
+from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 logging.basicConfig(
@@ -23,24 +25,30 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+STAR2 = "&#42;&#42;"
+
+
+def literal_bold(text: str) -> str:
+    # HTML entities render as literal ** characters in Telegram, not formatting.
+    return f"{STAR2}{html.escape(text)}{STAR2}"
 
 
 def make_caption(movie_name: str, link: str) -> str:
-    # Literal ** characters are intentional; Telegram parse mode is disabled.
-    title = " ".join(f"**{word}**" for word in movie_name.split())
+    title = " ".join(literal_bold(word) for word in movie_name.split())
+    safe_link = html.escape(link)
     return (
         f"{title}\n"
-        "**━━━━━━━━━━━━━━━━━━━━**\n"
-        "**𝗙𝗜𝗟𝗘𝗦** **𝗟𝗶𝗻𝗸** **👇🏻👇🏻👇🏻👇🏻**\n"
-        f"**{link}**\n"
-        f"**{link}**\n"
-        f"**{link}**\n\n"
-        "**𝗛𝗢𝗪** **𝗧𝗢** **𝗢𝗣𝗘𝗡** **𝗟𝗶𝗡𝗞🔗👇👇**\n"
-        "**https://t.me/Hwotoopenlink**\n"
-        "**══════════════════════**\n"
-        "**🔰𝐉𝐨𝐢𝐧** **:-** **🌟🌟**\n"
-        "**@SKR_updates**\n"
-        "**@SKR_updates**"
+        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
+        f"{literal_bold('𝗙𝗜𝗟𝗘𝗦')} {literal_bold('𝗟𝗶𝗻𝗸')} {literal_bold('👇🏻👇🏻👇🏻👇🏻')}\n"
+        f"{literal_bold(link)}\n"
+        f"{literal_bold(link)}\n"
+        f"{literal_bold(link)}\n\n"
+        f"{literal_bold('𝗛𝗢𝗪')} {literal_bold('𝗧𝗢')} {literal_bold('𝗢𝗣𝗘𝗡')} {literal_bold('𝗟𝗶𝗡𝗞🔗👇👇')}\n"
+        f"{literal_bold('https://t.me/Hwotoopenlink')}\n"
+        f"{literal_bold('══════════════════════')}\n"
+        f"{literal_bold('🔰𝐉𝐨𝐢𝐧')} {literal_bold(':-')} {literal_bold('🌟🌟')}\n"
+        f"{literal_bold('@SKR_updates')}\n"
+        f"{literal_bold('@SKR_updates')}"
     )
 
 
@@ -88,11 +96,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    output_caption = make_caption(movie_name, link)
     await message.reply_photo(
         photo=message.photo[-1].file_id,
-        caption=output_caption,
-        parse_mode=None,
+        caption=make_caption(movie_name, link),
+        parse_mode=ParseMode.HTML,
         reply_parameters=reply_parameters,
     )
 
@@ -108,7 +115,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await message.reply_text(
         make_caption(movie_name, link),
-        parse_mode=None,
+        parse_mode=ParseMode.HTML,
         reply_parameters=ReplyParameters(message_id=message.message_id),
     )
 
