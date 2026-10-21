@@ -713,14 +713,94 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not channels:
             await query.edit_message_text("⚠️ Dump Channel add ಆಗಿಲ್ಲ. /adddump ಮೂಲಕ channel ID add ಮಾಡು.")
             return
-        if len(channels) == 1:
-            await deliver_pending_post(context, user.id, channels[0], pending)
-            context.user_data.pop("pending_dump_post", None)
-            await query.edit_message_text("✅ Post Dump Channel‌ಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.")
+        context.user_data["selected_dump_indices"] = []
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📣 Send All", callback_data="dest:all")],
+            [InlineKeyboardButton("☑️ Select Dumps", callback_data="pickdump:select")],
+        ])
+        await query.edit_message_text("📤 Post ಯಾವ channels‌ಗೆ ಕಳುಹಿಸಬೇಕು?", reply_markup=keyboard)
+        return
+    if data.startswith("pickdump:"):
+        action = data.split(":", 1)[1]
+        pending = context.user_data.get("pending_dump_post")
+        channels = get_dump_channels(user.id)
+        if not pending:
+            await query.edit_message_text("⚠️ Pending post ಇಲ್ಲ. ಮತ್ತೆ post ಕಳುಹಿಸು.")
             return
-        rows = [[InlineKeyboardButton(f"📤 {channel_id}", callback_data=f"dest:{channel_id}")] for channel_id in channels]
-        rows.append([InlineKeyboardButton("📣 Send to ALL dumps", callback_data="dest:all")])
-        await query.edit_message_text("ಯಾವ Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕು?", reply_markup=InlineKeyboardMarkup(rows))
+        if not channels:
+            await query.edit_message_text("⚠️ Dump Channel add ಆಗಿಲ್ಲ. /adddump ಮೂಲಕ channel ID add ಮಾಡು.")
+            return
+        if action == "back":
+            context.user_data["selected_dump_indices"] = []
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📣 Send All", callback_data="dest:all")],
+                [InlineKeyboardButton("☑️ Select Dumps", callback_data="pickdump:select")],
+            ])
+            await query.edit_message_text("📤 Post ಯಾವ channels‌ಗೆ ಕಳುಹಿಸಬೇಕು?", reply_markup=keyboard)
+            return
+        if action == "select":
+            context.user_data["selected_dump_indices"] = []
+        elif action in {"send", "all"}:
+            selected = context.user_data.get("selected_dump_indices", [])
+            destinations = channels if action == "all" else [
+                channel for i, channel in enumerate(channels) if i in selected
+            ]
+            if not destinations:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(("☑️ " if i in selected else "☐ ") + f"Dump {i + 1}", callback_data=f"pickdump:{i}")]
+                    for i, _ in enumerate(channels)
+                ])
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton("✅ Send Selected (0)", callback_data="pickdump:send")
+                ])
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton("📣 Send All", callback_data="pickdump:all"),
+                    InlineKeyboardButton("↩️ Back", callback_data="pickdump:back"),
+                ])
+                await query.edit_message_text("ಕನಿಷ್ಠ ಒಂದು Dump ಆಯ್ಕೆ ಮಾಡು; ನಂತರ Send Selected ಒತ್ತು.", reply_markup=keyboard)
+                return
+            successes, failures = [], []
+            for channel_id in destinations:
+                try:
+                    await deliver_pending_post(context, user.id, channel_id, pending)
+                    successes.append(channel_id)
+                except Exception:
+                    logging.exception("Failed to send to dump channel %s", channel_id)
+                    failures.append(channel_id)
+            context.user_data.pop("pending_dump_post", None)
+            context.user_data.pop("selected_dump_indices", None)
+            result = f"✅ ಯಶಸ್ವಿಯಾಗಿ ಕಳುಹಿಸಲಾಗಿದೆ: {len(successes)} channel(s)."
+            if failures:
+                result += f"\n❌ Failed: {', '.join(failures)}\nBot admin ಆಗಿದೆಯೇ ಪರಿಶೀಲಿಸು."
+            await query.edit_message_text(result, parse_mode=None)
+            return
+        elif action.isdigit():
+            index = int(action)
+            if index < 0 or index >= len(channels):
+                await query.edit_message_text("⚠️ Dump Channel ಸಿಗಲಿಲ್ಲ. /dumps ಮೂಲಕ ಪರಿಶೀಲಿಸು.")
+                return
+            selected = list(context.user_data.get("selected_dump_indices", []))
+            if index in selected:
+                selected.remove(index)
+            else:
+                selected.append(index)
+            context.user_data["selected_dump_indices"] = selected
+        else:
+            return
+        selected = context.user_data.get("selected_dump_indices", [])
+        rows = [
+            [InlineKeyboardButton(("☑️ " if i in selected else "☐ ") + f"Dump {i + 1}", callback_data=f"pickdump:{i}")]
+            for i, _ in enumerate(channels)
+        ]
+        rows.append([InlineKeyboardButton(f"✅ Send Selected ({len(selected)})", callback_data="pickdump:send")])
+        rows.append([
+            InlineKeyboardButton("📣 Send All", callback_data="pickdump:all"),
+            InlineKeyboardButton("↩️ Back", callback_data="pickdump:back"),
+        ])
+        await query.edit_message_text(
+            f"☑️ Dump channels ಆಯ್ಕೆ ಮಾಡು. Selected: {len(selected)}\nSend Selected ಒತ್ತಿದ ನಂತರ ಮಾತ್ರ post ಹೋಗುತ್ತದೆ.",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
         return
     if data.startswith("dest:"):
         pending = context.user_data.get("pending_dump_post")
