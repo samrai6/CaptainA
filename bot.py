@@ -563,8 +563,6 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{literal_bold('📂 FILES LINK 👇🏻')}\n"
-        f"{literal_bold('══════════════════════')}\n"
         f"{button_footer}"
     )
 
