@@ -187,7 +187,7 @@ def save_setting(user_id: int, key: str, value: str):
 
 
 def save_post_mode(user_id: int, mode: str):
-    if mode not in {"normal", "buttons"}:
+    if mode not in {"normal", "buttons", "multi"}:
         raise ValueError("Unsupported post mode")
     save_setting(user_id, "post_mode", mode)
 
@@ -326,6 +326,45 @@ def parse_caption(text: str):
     return movie_name, download_link, watch_link
 
 
+def parse_multi_caption(text: str):
+    """Movie title followed by links ordered 360p, 480p, 720p, 1080p."""
+    text = (text or "").replace("\\n", "\n")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None, []
+    movie_name = lines[0]
+    links = []
+    for line in lines[1:]:
+        match = URL_RE.search(line)
+        if match:
+            link = match.group(0).strip("*").rstrip(".,);]*_")
+            if link not in links:
+                links.append(link)
+    return (movie_name, links[:4]) if movie_name and links else (None, [])
+
+
+def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
+    title = " ".join(literal_bold(word) for word in movie_name.split())
+    footer = footer.replace("\\n", "\n")
+    footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
+    footer_text = render_footer("\n".join(footer_lines))
+    return (
+        f"{title}\n"
+        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
+        f"{literal_bold('📂 CHOOSE VIDEO QUALITY 👇')}\n"
+        f"{literal_bold('══════════════════════')}\n"
+        f"{footer_text}"
+    )
+
+
+def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
+    labels = ["360p", "480p", "720p", "1080p"]
+    quality_buttons = [InlineKeyboardButton(label, url=link) for label, link in zip(labels, links)]
+    rows = [quality_buttons[i:i + 2] for i in range(0, len(quality_buttons), 2)]
+    rows.append([InlineKeyboardButton(settings["updates_text"], url=settings["updates_url"])])
+    return InlineKeyboardMarkup(rows)
+
+
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
     # Keep Button Mode caption short and English-only; buttons hold the actual links.
@@ -428,9 +467,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
         return
     settings = get_user_settings(update.effective_user.id)
-    mode_label = "Normal Mode" if settings["post_mode"] == "normal" else "Button Mode"
+    mode_label = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode"}.get(settings["post_mode"], "Normal Mode")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
+        [InlineKeyboardButton("🎬 Multi Button Mode", callback_data="mode:multi")],
         [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
@@ -461,7 +501,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
             return
     settings = get_user_settings(user.id)
-    if settings["post_mode"] == "buttons":
+    if settings["post_mode"] == "multi":
+        movie_name, quality_links = parse_multi_caption(message.caption or "")
+        if not movie_name or not quality_links:
+            manual = context.user_data.pop("pending_manual_multi_photo", None)
+            if manual:
+                movie_name, quality_links = manual
+            else:
+                await message.reply_text("❌ First line Movie Name; next lines links in order 360p, 480p, 720p, 1080p.", parse_mode=None)
+                return
+        caption = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
+        keyboard = make_multi_buttons(quality_links, settings)
+    elif settings["post_mode"] == "buttons":
         caption = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
@@ -491,7 +542,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not movie_name or not download_link:
         return
     settings = get_user_settings(user.id)
-    if settings["post_mode"] == "buttons":
+    if settings["post_mode"] == "multi":
+        movie_name, quality_links = parse_multi_caption(message.text)
+        if not movie_name or not quality_links:
+            return
+        output = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
+        keyboard = make_multi_buttons(quality_links, settings)
+    elif settings["post_mode"] == "buttons":
         output = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
         keyboard = make_buttons(download_link, watch_link, settings)
     else:
@@ -523,7 +580,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data or ""
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
-        if mode in {"normal", "buttons"}:
+        if mode in {"normal", "buttons", "multi"}:
             save_post_mode(user.id, mode)
             await query.edit_message_text("✅ Mode changed to " + ("Normal Mode" if mode == "normal" else "Button Mode") + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
