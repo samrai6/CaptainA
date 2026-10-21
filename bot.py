@@ -384,27 +384,38 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Footer commands:\n/footer\n/setfooter <footer text>\n/resetfooter", parse_mode=None)
         return
     if data == "dump:no":
-        context.user_data.pop("pending_dump_post", None)
-        await query.edit_message_text("❌ Dump Cancelled. Channel‌ಗೆ ಕಳುಹಿಸಿಲ್ಲ.")
-        # Telegram bots cannot force-open the user's PM screen, but can send a
-        # private message so the user can continue from the bot chat.
-        mode_label = "Normal Mode" if get_user_settings(user.id)["post_mode"] == "normal" else "Button Mode"
-        settings = get_user_settings(user.id)
-        dump_id = settings.get("dump_channel_id") or "Not set"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
-            [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
-            [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons"), InlineKeyboardButton("✍️ Footer Settings", callback_data="settings:footer")],
-        ])
-        try:
+        pending = context.user_data.pop("pending_dump_post", None)
+        await query.edit_message_text("❌ Dump Cancelled. Post ಅನ್ನು PMಗೆ ಕಳುಹಿಸುತ್ತಿದ್ದೇನೆ.")
+        if not pending:
             await context.bot.send_message(
                 chat_id=user.id,
-                text=f"❌ Dump Cancelled. Post ಕಳುಹಿಸಿಲ್ಲ.\n\n⚜️ SKR Photo Caption Bot\nCurrent Mode: {mode_label}\nDump Channel ID: {dump_id}\n\nಇಲ್ಲಿಂದ ಮುಂದುವರಿಸಬಹುದು.",
-                reply_markup=keyboard,
+                text="⚠️ Pending post ಸಿಗಲಿಲ್ಲ. ಫೋಟೋ ಮತ್ತು caption ಮತ್ತೆ ಕಳುಹಿಸು.",
                 parse_mode=None,
             )
+            return
+        try:
+            if pending["type"] == "photo":
+                await context.bot.send_photo(
+                    chat_id=user.id,
+                    photo=pending["file_id"],
+                    caption=pending["caption"],
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=pending.get("keyboard"),
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text=pending["caption"],
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=pending.get("keyboard"),
+                )
         except Exception:
-            logging.warning("Could not send cancellation message to PM for user %s; user may not have started the bot privately.", user.id)
+            logging.exception("Failed to send cancelled post to user's PM")
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="❌ Post PMಗೆ ಕಳುಹಿಸಲು ಆಗಲಿಲ್ಲ. Botಗೆ PMನಲ್ಲಿ /start ಮಾಡಿರುವುದನ್ನು ಪರಿಶೀಲಿಸು.",
+                parse_mode=None,
+            )
         return
     if data == "dump:yes":
         pending = context.user_data.get("pending_dump_post")
