@@ -214,32 +214,60 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
 
 
 def clean_imdb_movie_title(movie_name: str) -> str:
-    """Keep only the movie title for IMDb lookup; preserve the original caption elsewhere."""
+    """Remove year, language, and quality tags before looking up a movie."""
     title = movie_name.strip()
-    # Remove year tags such as (2026) or [2026].
-    title = re.sub(r"[\\[(]\\s*(?:19|20)\\d{2}\\s*[\\])]", " ", title)
-    # Remove common language, dub, quality, and release tags.
+    title = re.sub(r"[\[(]\s*(?:19|20)\d{2}\s*[\])]", " ", title)
     noise_patterns = [
-        r"(?i)\\b(?:kannada|kan|hindi|tamil|telugu|malayalam|english)\\b",
-        r"(?i)\\b(?:dub(?:bed)?|original|multi(?:ple)?[ -]?audio)\\b",
-        r"(?i)\\b(?:hdrip|web[ -]?dl|webrip|bluray|brrip|dvdrip|camrip|hdtv|prehd)\\b",
-        r"(?i)\\b\\d{3,4}\\s*[pP]\\b",
-        r"(?i)\\b(?:x264|x265|h264|h265|hevc|10bit|8bit)\\b",
-        r"(?i)\\b(?:4k|uhd|hd|full[ -]?hd)\\b",
-        r"#\\w+",
+        r"(?i)\b(?:kannada|kan|hindi|tamil|telugu|malayalam|english)\b",
+        r"(?i)\b(?:dub(?:bed)?|original|multi(?:ple)?[ -]?audio)\b",
+        r"(?i)\b(?:hdrip|web[ -]?dl|webrip|bluray|brrip|dvdrip|camrip|hdtv|prehd)\b",
+        r"(?i)\b\d{3,4}\s*[pP]\b",
+        r"(?i)\b(?:x264|x265|h264|h265|hevc|10bit|8bit)\b",
+        r"(?i)\b(?:4k|uhd|hd|full[ -]?hd)\b",
+        r"#\w+",
     ]
     for pattern in noise_patterns:
         title = re.sub(pattern, " ", title)
     title = re.sub(r"[|_]+", " ", title)
-    title = re.sub(r"\\s+", " ", title).strip(" -–—#")
+    title = re.sub(r"\s+", " ", title).strip(" -–—#")
     return title or movie_name.strip()
 
 
+def transliterate_kannada_to_english(title: str) -> str:
+    """Ask Google Input Tools for a Latin-script transliteration; fall back safely."""
+    if not re.search(r"[\u0C80-\u0CFF]", title):
+        return title
+    try:
+        params = urllib.parse.urlencode({
+            "text": title,
+            "itc": "kn-t-i0-und",
+            "num": "1",
+            "cp": "0",
+            "cs": "1",
+            "ie": "utf-8",
+            "oe": "utf-8",
+        })
+        request = urllib.request.Request(
+            "https://inputtools.google.com/request?" + params,
+            headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if result and result[0] == "SUCCESS":
+            suggestions = result[1]
+            if suggestions and suggestions[0] and suggestions[0][0]:
+                return suggestions[0][0]
+    except Exception:
+        logging.warning("Kannada title transliteration failed for %r", title, exc_info=True)
+    return title
+
+
 def find_imdb_poster(movie_name: str):
-    """Look up a likely IMDb title poster without requiring an API key."""
+    """Search IMDb using a cleaned, Latin-script movie title."""
     try:
         search_title = clean_imdb_movie_title(movie_name)
-        query = urllib.parse.quote(search_title)
+        english_title = transliterate_kannada_to_english(search_title)
+        query = urllib.parse.quote(english_title)
         request = urllib.request.Request(
             f"https://v2.sg.media-imdb.com/suggestion/x/{query}.json",
             headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"},
@@ -247,7 +275,7 @@ def find_imdb_poster(movie_name: str):
         with urllib.request.urlopen(request, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
         candidates = data.get("d", [])
-        normalized = re.sub(r"[^a-z0-9]", "", movie_name.lower())
+        normalized = re.sub(r"[^a-z0-9]", "", english_title.lower())
         candidates.sort(key=lambda item: 0 if re.sub(r"[^a-z0-9]", "", item.get("l", "").lower()) == normalized else 1)
         for item in candidates:
             image = item.get("i") or {}
