@@ -354,12 +354,8 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         raise ValueError("Poster image is too large")
     ai_enabled = bool(movie_name and settings.get("ai_edit_enabled", 0))
     if not ai_enabled:
-        # Keep AI editing disabled, but try conservative OCR cleanup so only the
-        # requested movie-title words remain. If OCR dependencies fail, the
-        # cleanup helper returns the untouched original poster.
+        # AI OFF means preserve the original poster and add only the watermark.
         image = Image.open(io.BytesIO(raw)).convert("RGBA")
-        if movie_name:
-            image = remove_non_title_text(image, movie_name)
     else:
         edited_raw = ai_edit_poster(raw, movie_name)
         if edited_raw:
