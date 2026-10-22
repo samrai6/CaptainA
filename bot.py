@@ -882,10 +882,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def extract_mediainfo_filename(raw_text: str):
-    """Extract a filename from a MediaInfo bot message/header."""
+    """Extract the filename from the first line of a MediaInfo message."""
     if not raw_text:
         return None
-
     first_line = raw_text.strip().splitlines()[0].strip()
     match = re.match(r"^MediaInfo\s+of\s+(.+?)\s*$", first_line, flags=re.IGNORECASE)
     filename = match.group(1).strip().strip("'\"") if match else first_line.strip().strip("'\"")
@@ -895,8 +894,123 @@ def extract_mediainfo_filename(raw_text: str):
     return filename or None
 
 
-async def send_mediainfo_filename(message, raw_text: str):
+def build_mediainfo_filename(raw_text: str):
+    """Build a release filename using details actually present in the MediaInfo message."""
     filename = extract_mediainfo_filename(raw_text)
+    if not filename:
+        return None
+
+    # Keep the original name/source tags and extension; only append missing technical tags.
+    stem, ext = os.path.splitext(filename)
+    if not ext:
+        ext = ".mkv"
+
+    additions = []
+    lower_text = raw_text.lower()
+    lower_stem = stem.lower()
+
+    # Resolution: prefer a resolution already present in the filename, otherwise infer it.
+    if not re.search(r"\b(?:360|480|540|720|1080|1440|2160)p\b", lower_stem):
+        resolution_match = re.search(r"Resolution:\s*(\d{3,5})\s*[x×]\s*(\d{3,5})", raw_text, re.IGNORECASE)
+        if resolution_match:
+            height = int(resolution_match.group(2))
+            if height <= 400:
+                additions.append("360p")
+            elif height <= 600:
+                additions.append("480p")
+            elif height <= 800:
+                additions.append("720p")
+            elif height <= 1100:
+                additions.append("1080p")
+            elif height <= 1600:
+                additions.append("1440p")
+            else:
+                additions.append("2160p")
+
+    # Codec tags are based on the reported codec, not the uploader's Title field.
+    video_codec = re.search(r"Video Stream[\s\S]*?Codec:\s*([^\r\n]+)", raw_text, re.IGNORECASE)
+    if video_codec:
+        codec_line = video_codec.group(1).lower()
+        if "av1" in codec_line:
+            codec_tag = "AV1"
+        elif any(token in codec_line for token in ("hevc", "h.265", "h265", "x265")):
+            codec_tag = "x265"
+        elif any(token in codec_line for token in ("h.264", "h264", "avc", "x264")):
+            codec_tag = "x264"
+        else:
+            codec_tag = ""
+        if codec_tag and codec_tag.lower() not in lower_stem:
+            additions.append(codec_tag)
+
+    audio_section = re.search(r"Audio Tracks([\s\S]*?)(?:Subtitle Tracks|Technical|$)", raw_text, re.IGNORECASE)
+    audio_text = audio_section.group(1) if audio_section else ""
+    audio_languages = [
+        ("Kannada", "Kan"), ("Malayalam", "Mal"), ("Tamil", "Tam"),
+        ("Telugu", "Tel"), ("Hindi", "Hin"), ("English", "Eng"),
+        ("Bengali", "Ben"), ("Marathi", "Mar"), ("Punjabi", "Pun"),
+        ("Urdu", "Urd"), ("Japanese", "Jpn"), ("Korean", "Kor"),
+        ("Chinese", "Chi"), ("Spanish", "Spa"), ("French", "Fre"),
+        ("German", "Ger"), ("Russian", "Rus"), ("Arabic", "Ara"),
+    ]
+    language_tags = []
+    for line in audio_text.splitlines():
+        if re.match(r"\s*(?:‣|[-•])", line):
+            continue
+        track = re.match(r"\s*\d+\.\s*(.+)", line)
+        if not track:
+            continue
+        track_text = track.group(1)
+        for language, tag in audio_languages:
+            if re.search(r"\b" + re.escape(language) + r"\b", track_text, re.IGNORECASE):
+                if tag not in language_tags:
+                    language_tags.append(tag)
+                break
+    if language_tags:
+        additions.extend(tag for tag in language_tags if not re.search(r"\b" + re.escape(tag) + r"\b", lower_stem, re.IGNORECASE))
+
+    if audio_text:
+        audio_codec_match = re.search(r"\b(AAC|AC-3|E-AC-3|DDP|DTS-HD|DTS|FLAC|Opus|MP3)\b", audio_text, re.IGNORECASE)
+        if audio_codec_match:
+            codec = audio_codec_match.group(1).upper()
+            if codec == "E-AC-3":
+                codec = "EAC3"
+            elif codec == "AC-3":
+                codec = "AC3"
+            elif codec == "DTS-HD":
+                codec = "DTS-HD"
+            if codec.lower() not in lower_stem:
+                additions.append(codec)
+        if re.search(r"\bstereo\b|\b2\.0\b", audio_text, re.IGNORECASE) and not re.search(r"\b2\.0\b", lower_stem):
+            additions.append("2.0")
+        elif re.search(r"\b5\.1\b|6 channels", audio_text, re.IGNORECASE) and not re.search(r"\b5\.1\b", lower_stem):
+            additions.append("5.1")
+        elif re.search(r"\b7\.1\b|8 channels", audio_text, re.IGNORECASE) and not re.search(r"\b7\.1\b", lower_stem):
+            additions.append("7.1")
+
+    subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
+    subtitle_text = subtitle_section.group(1) if subtitle_section else ""
+    subtitle_tags = []
+    for language, tag in audio_languages:
+        if re.search(r"\b" + re.escape(language) + r"\b", subtitle_text, re.IGNORECASE):
+            subtitle_tags.append(tag + "Sub")
+    if subtitle_tags and not re.search(r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub)\b", stem, re.IGNORECASE):
+        additions.extend(subtitle_tags)
+
+    bitrate_match = re.search(r"Bitrate:\s*([\d.]+)\s*kbps", raw_text, re.IGNORECASE)
+    if bitrate_match and not re.search(r"\b\d+(?:\.\d+)?\s*kbps\b", lower_stem):
+        additions.append(f"{bitrate_match.group(1)}kbps")
+
+    # Remove duplicates and append the technical tags before the extension.
+    existing = stem.lower()
+    unique_additions = []
+    for tag in additions:
+        if tag.lower() not in existing and tag.lower() not in [item.lower() for item in unique_additions]:
+            unique_additions.append(tag)
+    return f"{stem}{' ' if stem and unique_additions else ''}{' '.join(unique_additions)}{ext}"
+
+
+async def send_mediainfo_filename(message, raw_text: str):
+    filename = build_mediainfo_filename(raw_text)
     if not filename:
         await message.reply_text(
             "❌ MediaInfo filename ಸಿಗಲಿಲ್ಲ. MediaInfo bot‌ನ message ಅನ್ನು reply ಮಾಡಿ /mediainfo ಕಳುಹಿಸು.",
