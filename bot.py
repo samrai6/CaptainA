@@ -200,62 +200,6 @@ def search_google_image_posters(movie_name: str) -> list:
         logging.warning("Google Images poster search failed for %r", movie_name, exc_info=True)
         return []
 
-def remove_non_title_text(image: Image.Image, movie_name: str) -> Image.Image:
-    """Best-effort OCR/inpainting: remove detected poster text except words matching the movie title."""
-    try:
-        import cv2
-        import numpy as np
-        import pytesseract
-        from difflib import SequenceMatcher
-
-        rgb = np.array(image.convert("RGB"))
-        data = pytesseract.image_to_data(rgb, output_type=pytesseract.Output.DICT, config="--psm 11")
-        title_words = [
-            re.sub(r"[^a-z0-9]", "", word.lower())
-            for word in re.findall(r"[A-Za-z0-9]+", transliterate_kannada_to_english(movie_name))
-        ]
-        title_words = [word for word in title_words if len(word) > 1]
-        if not title_words:
-            return image
-
-        mask = np.zeros(rgb.shape[:2], dtype=np.uint8)
-        kept = 0
-        for i, raw_word in enumerate(data.get("text", [])):
-            word = re.sub(r"[^a-z0-9]", "", (raw_word or "").lower())
-            try:
-                confidence = float(data["conf"][i])
-                x, y = int(data["left"][i]), int(data["top"][i])
-                w, h = int(data["width"][i]), int(data["height"][i])
-            except (ValueError, TypeError, KeyError, IndexError):
-                continue
-            if not word or confidence < 35 or w < 3 or h < 3:
-                continue
-            # Keep only OCR words that plausibly match a word in the requested movie title.
-            title_match = any(
-                word == title or
-                (min(len(word), len(title)) >= 4 and SequenceMatcher(None, word, title).ratio() >= 0.86)
-                for title in title_words
-            )
-            if title_match:
-                kept += 1
-                continue
-            pad = max(2, int(h * 0.22))
-            x1, y1 = max(0, x - pad), max(0, y - pad)
-            x2, y2 = min(mask.shape[1], x + w + pad), min(mask.shape[0], y + h + pad)
-            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, thickness=-1)
-
-        if not np.any(mask):
-            return image
-        # Inpainting is a best effort; avoid altering images when OCR finds no usable text.
-        cleaned = cv2.inpaint(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), mask, 4, cv2.INPAINT_TELEA)
-        logging.info("Poster text cleanup masked OCR regions; preserved %s title-like words", kept)
-        return Image.fromarray(cv2.cvtColor(cleaned, cv2.COLOR_BGR2RGB)).convert("RGBA")
-    except Exception:
-        # Keep poster generation working if optional OCR/system dependencies are unavailable.
-        logging.warning("Automatic poster text cleanup unavailable; keeping original poster", exc_info=True)
-        return image
-
-
 def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
     """Try free public Hugging Face Spaces image editing without an API key."""
     try:
