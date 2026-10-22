@@ -934,12 +934,16 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         ("German", "Ger"), ("Russian", "Rus"), ("Arabic", "Ara"),
     ]
     language_tags = []
+    display_languages = []
     audio_section = re.search(r"Audio Tracks([\s\S]*?)(?:Subtitle Tracks|Technical|$)", raw_text, re.IGNORECASE)
     audio_text = audio_section.group(1) if audio_section else raw_text
     for language, tag in languages:
         # Include languages explicitly mentioned in the filename, audio tracks, or prose summary.
-        if re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE) or re.search(r"\b" + re.escape(language) + r"\b", audio_text, re.IGNORECASE):
+        full_name_found = bool(re.search(r"\b" + re.escape(language) + r"\b", work, re.IGNORECASE) or re.search(r"\b" + re.escape(language) + r"\b", audio_text, re.IGNORECASE))
+        short_tag_found = bool(re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE))
+        if full_name_found or short_tag_found:
             language_tags.append(tag)
+            display_languages.append(language if full_name_found else tag)
 
     # Dub marker is kept only when it is explicitly present or inferable from a language-labelled filename.
     dub = "Dub" if re.search(r"\b(?:dub|dubbed)\b", work, re.IGNORECASE) else None
@@ -1042,7 +1046,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     ordered = []
     if title:
         ordered.append(title)
-    ordered.extend(language_tags)
+    ordered.extend(display_languages)
     if dub:
         ordered.append(dub)
     if quality:
