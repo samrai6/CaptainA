@@ -1688,7 +1688,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ("AI enhancement ಹೊಸ posters ಮೇಲೆ ನಡೆಯುತ್ತದೆ." if s.get("ai_edit_enabled", 1) else "AI enhancement skip ಆಗುತ್ತದೆ. Posterಗೆ watermark/OCR cleanup ಮುಂದುವರಿಯಬಹುದು."),
             reply_markup=watermark_settings_keyboard(s), parse_mode=None)
         return
-    if data.startswith("wm:pos:")
+    if data.startswith("wm:pos:"):
         pos = data.split(":", 2)[2]
         if pos in {"bottom-right", "bottom-left", "top-right", "top-left", "center"}:
             save_poster_setting(user.id, "watermark_position", pos)
