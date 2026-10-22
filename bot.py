@@ -1079,8 +1079,23 @@ async def send_mediainfo_filename(message, raw_text: str):
             parse_mode=None,
         )
         return
-    output = f"-n  {filename}"
-    await message.reply_text(f"<b>{html.escape(output)}</b>", parse_mode=ParseMode.HTML)
+
+    # Send the same four bold filename formats as separate Telegram messages.
+    outputs = [
+        f"/l1 -n {filename}",
+        f"/l2 -n {filename}",
+        f"/l3 -n {filename}",
+        f"/l -n {filename}",
+    ]
+    for output in outputs:
+        try:
+            await message.reply_text(
+                f"<b>{html.escape(output)}</b>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            logging.exception("Could not reply with MediaInfo filename format: %s", output)
+            await message.reply_text(output, parse_mode=None)
 
 
 async def mediainfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
