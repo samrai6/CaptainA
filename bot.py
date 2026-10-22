@@ -882,25 +882,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Format a pasted/forwarded MediaInfo header as a clean -n filename."""
+    """Format a pasted/forwarded MediaInfo headers as a clean -n filename."""
     message = update.effective_message
     if not message or not message.text:
         return
 
     text = message.text.strip()
     first_line = text.splitlines()[0].strip()
-
-    # Accept headers such as: "MediaInfo of @CHANNEL ~ Movie Name.mkv"
-    match = re.match(r"^MediaInfo\\s+of\\s+(.+?)\\s*$", first_line, flags=re.IGNORECASE)
+    match = re.match(r"^MediaInfo\s+of\s+(.+?)\s*$", first_line, flags=re.IGNORECASE)
     if not match:
         return
 
-    filename = match.group(1).strip().strip("`'\\"")
-    # Remove a channel prefix and channel suffix, keeping the real file extension.
-    filename = re.sub(r"^\\s*@[\\w]+\\s*~\\s*", "", filename, count=1)
-    filename = re.sub(r"\\s*~\\s*@[\\w]+(?=\\.[^.]+$|$)", "", filename, count=1)
-    # Some MediaInfo bots append a trailing channel/source tag after the extension.
-    filename = re.sub(r"\\s+@[\\w]+\\s*$", "", filename).strip()
+    filename = match.group(1).strip().strip("'""")
+    filename = re.sub(r"^\s*@[A-Za-z0-9_]+\s*~\s*", "", filename, count=1)
+    filename = re.sub(r"\s*~\s*@[A-Za-z0-9_]+(?=\.[^.]+$|$)", "", filename, count=1)
+    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
 
     if not filename:
         await message.reply_text("❌ MediaInfo headerನಲ್ಲಿ filename ಸಿಗಲಿಲ್ಲ.", parse_mode=None)
