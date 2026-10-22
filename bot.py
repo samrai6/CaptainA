@@ -943,22 +943,33 @@ SHORTXLINKS_API_URL = "https://shortxlinks.com/api"
 
 
 def create_shortxlinks_url(long_url: str, api_token: str) -> str:
-    """Create a short URL through the ShortXLinks API."""
-    query = urllib.parse.urlencode({"api": api_token, "url": long_url})
+    """Create a short URL through the ShortXLinks plain-text API response."""
+    query = urllib.parse.urlencode({
+        "api": api_token,
+        "url": long_url,
+        "format": "text",
+    })
     request_url = f"{SHORTXLINKS_API_URL}?{query}"
     request = urllib.request.Request(
         request_url,
         headers={"User-Agent": "CaptainA-TelegramBot/1.0"},
     )
     with urllib.request.urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        result = response.read().decode("utf-8").strip()
 
-    if payload.get("status") == "error":
-        raise ValueError(str(payload.get("message") or "ShortXLinks API returned an error."))
-    short_url = payload.get("shortenedUrl")
-    if not isinstance(short_url, str) or not short_url.startswith(("http://", "https://")):
-        raise ValueError("ShortXLinks API did not return a valid shortenedUrl.")
-    return short_url
+    if not result:
+        raise ValueError("ShortXLinks API returned an empty response.")
+    if result.startswith("{"):
+        try:
+            payload = json.loads(result)
+            if payload.get("status") == "error":
+                raise ValueError(str(payload.get("message") or "ShortXLinks API returned an error."))
+            result = str(payload.get("shortenedUrl") or "").strip()
+        except json.JSONDecodeError:
+            pass
+    if not result.startswith(("http://", "https://")):
+        raise ValueError("ShortXLinks API did not return a valid short URL.")
+    return result
 
 
 async def shortlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
