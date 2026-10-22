@@ -84,6 +84,7 @@ def init_footer_db():
                 "CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, post_mode TEXT NOT NULL DEFAULT 'normal', download_text TEXT NOT NULL DEFAULT '📥 DOWNLOAD', watch_text TEXT NOT NULL DEFAULT '▶️ WATCH ONLINE', updates_text TEXT NOT NULL DEFAULT '📢 UPDATES CHANNEL', updates_url TEXT NOT NULL DEFAULT 'https://t.me/SKR_updates', dump_channel_id TEXT NOT NULL DEFAULT '')"
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
+            conn.execute("CREATE TABLE IF NOT EXISTS shortxlinks_tokens (user_id INTEGER PRIMARY KEY, api_token TEXT NOT NULL)")
             conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1)")
             existing_poster_columns = {row[1] for row in conn.execute("PRAGMA table_info(poster_settings)").fetchall()}
             if "watermark_enabled" not in existing_poster_columns:
@@ -942,6 +943,52 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 SHORTXLINKS_API_URL = "https://shortxlinks.com/api"
 
 
+def get_shortxlinks_token(user_id: int) -> str:
+    """Prefer the user's token configured in the bot; fall back to Render env."""
+    if _mongo_settings is not None:
+        row = _mongo_settings.find_one({"user_id": user_id}, {"shortxlinks_api_token": 1})
+        if row and row.get("shortxlinks_api_token"):
+            return str(row["shortxlinks_api_token"]).strip()
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT api_token FROM shortxlinks_tokens WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if row and row[0]:
+            return str(row[0]).strip()
+    return os.getenv("SHORTXLINKS_API_KEY", "").strip()
+
+
+def save_shortxlinks_token(user_id: int, token: str):
+    if _mongo_settings is not None:
+        _mongo_settings.update_one(
+            {"user_id": user_id},
+            {"$set": {"shortxlinks_api_token": token}},
+            upsert=True,
+        )
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO shortxlinks_tokens (user_id, api_token) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET api_token=excluded.api_token",
+                (user_id, token),
+            )
+
+
+def delete_shortxlinks_token(user_id: int):
+    if _mongo_settings is not None:
+        _mongo_settings.update_one(
+            {"user_id": user_id},
+            {"$unset": {"shortxlinks_api_token": ""}},
+        )
+    else:
+        with sqlite3.connect(FOOTER_DB_PATH) as conn:
+            conn.execute("DELETE FROM shortxlinks_tokens WHERE user_id = ?", (user_id,))
+
+
+
+
 def create_shortxlinks_url(long_url: str, api_token: str) -> str:
     """Create a short URL through the ShortXLinks plain-text API response."""
     query = urllib.parse.urlencode({
@@ -972,14 +1019,52 @@ def create_shortxlinks_url(long_url: str, api_token: str) -> str:
     return result
 
 
+async def setshortlinktoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user:
+        return
+    if message.chat.type != "private":
+        await message.reply_text("🔐 API token ಅನ್ನು bot ಜೊತೆ private chatನಲ್ಲಿ ಮಾತ್ರ set ಮಾಡು.", parse_mode=None)
+        return
+    context.user_data["awaiting_shortxlinks_token"] = True
+    await message.reply_text(
+        "🔐 ShortXLinks API token ಅನ್ನು ಮುಂದಿನ messageನಲ್ಲಿ ಕಳುಹಿಸು. "
+        "ಇದು ನಿನ್ನ accountಗೆ save ಆಗುತ್ತದೆ. Cancel ಮಾಡಲು /cancel ಬಳಸು.",
+        parse_mode=None,
+    )
+
+
+async def removeshortlinktoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    user = update.effective_user
+    if not message or not user:
+        return
+    delete_shortxlinks_token(user.id)
+    await message.reply_text(
+        "✅ Botನಲ್ಲಿ save ಮಾಡಿದ ShortXLinks token ತೆಗೆದುಹಾಕಲಾಗಿದೆ. "
+        "Renderನಲ್ಲಿ SHORTXLINKS_API_KEY ಇದ್ದರೆ ಅದನ್ನು fallback ಆಗಿ ಬಳಸುತ್ತದೆ.",
+        parse_mode=None,
+    )
+
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message:
+        return
+    context.user_data.pop("awaiting_shortxlinks_token", None)
+    context.user_data.pop("awaiting_shortlink_url", None)
+    await message.reply_text("✅ Cancel ಮಾಡಲಾಗಿದೆ.", parse_mode=None)
+
+
 async def shortlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message:
         return
-    api_token = os.getenv("SHORTXLINKS_API_KEY", "").strip()
+    api_token = get_shortxlinks_token(update.effective_user.id) if update.effective_user else ""
     if not api_token:
         await message.reply_text(
-            "❌ ShortXLinks API key set ಆಗಿಲ್ಲ. Render → Environment ನಲ್ಲಿ SHORTXLINKS_API_KEY ಸೇರಿಸು.",
+            "❌ API token set ಆಗಿಲ್ಲ. Botನಲ್ಲಿ /setshortlinktoken ಬಳಸಿ token save ಮಾಡು.",
             parse_mode=None,
         )
         return
@@ -1007,15 +1092,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.text or not user:
         return
+    if context.user_data.get("awaiting_shortxlinks_token"):
+        context.user_data.pop("awaiting_shortxlinks_token", None)
+        token = message.text.strip()
+        if not token or len(token) > 500 or any(ch.isspace() for ch in token):
+            await message.reply_text("❌ Token format ಸರಿಯಿಲ್ಲ. ಮತ್ತೆ /setshortlinktoken ಬಳಸು.", parse_mode=None)
+            return
+        save_shortxlinks_token(user.id, token)
+        await message.reply_text("✅ ShortXLinks API token bot settingsನಲ್ಲಿ save ಆಯಿತು. ಈಗ /shortlink ಬಳಸಿ.", parse_mode=None)
+        return
     if context.user_data.get("awaiting_shortlink_url"):
         context.user_data.pop("awaiting_shortlink_url", None)
         long_url = message.text.strip()
         if not long_url.startswith(("http://", "https://")):
             await message.reply_text("❌ ಸರಿಯಾದ http:// ಅಥವಾ https:// URL ಕಳುಹಿಸು. ಮತ್ತೆ /shortlink ಬಳಸು.", parse_mode=None)
             return
-        api_token = os.getenv("SHORTXLINKS_API_KEY", "").strip()
+        api_token = get_shortxlinks_token(user.id)
         if not api_token:
-            await message.reply_text("❌ Render → Environment ನಲ್ಲಿ SHORTXLINKS_API_KEY ಸೇರಿಸು.", parse_mode=None)
+            await message.reply_text("❌ API token set ಆಗಿಲ್ಲ. Botನಲ್ಲಿ /setshortlinktoken ಬಳಸಿ token save ಮಾಡು.", parse_mode=None)
             return
         await _send_shortlink(message, long_url, api_token)
         return
@@ -1626,6 +1720,9 @@ def main():
     app.add_handler(CommandHandler("setbuttonfooter", setbuttonfooter))
     app.add_handler(CommandHandler("buttonfooter", showbuttonfooter))
     app.add_handler(CommandHandler("resetbuttonfooter", resetbuttonfooter))
+    app.add_handler(CommandHandler("setshortlinktoken", setshortlinktoken_command))
+    app.add_handler(CommandHandler("removeshortlinktoken", removeshortlinktoken_command))
+    app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("shortlink", shortlink_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("normal", normal_mode))
