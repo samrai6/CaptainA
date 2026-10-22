@@ -670,14 +670,14 @@ def parse_postlink_caption(text: str):
 
 
 def make_postlink_caption(title: str, links: list, final_line: str, footer: str) -> str:
-    # Postlink caption has a fixed heading and a de-duplicated footer.
+    # Postlink mode keeps only the bold title, bold links, and the configured footer.
     footer_lines = list(dict.fromkeys(
         line.strip() for line in footer.replace("\\n", "\n").splitlines() if line.strip()
     ))
     footer_text = render_footer("\n".join(footer_lines))
-    return (literal_bold(title) + "\n\n" + literal_bold("Uploading Join Fast 👇👇")
-            + "\n" + "\n".join(literal_bold(link) for link in links)
-            + "\n\n" + footer_text)
+    return literal_bold(title) + "\n\n" + "\n".join(
+        literal_bold(link) for link in links
+    ) + "\n\n" + footer_text
 
 
 def parse_caption(text: str):
