@@ -1196,23 +1196,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
         keyboard = None
     else:
-        movie_name, download_link, watch_link = parse_caption(message.caption or "")
-        if not movie_name or not download_link:
-            manual = context.user_data.pop("pending_manual_photo", None)
-            if manual:
-                movie_name, download_link, watch_link = manual
-            else:
+        # If this photo was requested after a text post's poster search failed,
+        # reuse that post's saved title and links; the user only needs to send a photo.
+        manual = context.user_data.pop("pending_manual_photo", None)
+        if manual:
+            movie_name, download_link, watch_link = manual
+        else:
+            movie_name, download_link, watch_link = parse_caption(message.caption or "")
+            if not movie_name or not download_link:
                 await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
                 return
     if settings["post_mode"] == "postlink":
         pass
     elif settings["post_mode"] == "multi":
-        movie_name, quality_links = parse_multi_caption(message.caption or "")
-        if not movie_name or not quality_links:
-            manual = context.user_data.pop("pending_manual_multi_photo", None)
-            if manual:
-                movie_name, quality_links = manual
-            else:
+        # Prefer the saved text-post data when this is the requested fallback photo.
+        manual_multi = context.user_data.pop("pending_manual_multi_photo", None)
+        if manual_multi:
+            movie_name, quality_links = manual_multi
+        else:
+            movie_name, quality_links = parse_multi_caption(message.caption or "")
+            if not movie_name or not quality_links:
                 await message.reply_text("❌ First line Movie Name; next lines links in order 360p, 480p, 720p, 1080p.", parse_mode=None)
                 return
         caption = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
@@ -1495,8 +1498,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if settings["post_mode"] == "multi":
         context.user_data["pending_manual_multi_photo"] = (movie_name, links[:4])
     await message.reply_text(
-        "🖼️ Google Images / IMDb poster ಸಿಗಲಿಲ್ಲ. ನೀನೇ photo ಕಳುಹಿಸು.\n"
-        "ಮೊದಲ ಸಾಲು poster searchಗೆ (ಉದಾ: KGF 2018); ಎರಡನೇ ಸಾಲಿನಿಂದ caption ಶುರುವಾಗುತ್ತದೆ.",
+        "🖼️ Google Images / IMDbನಲ್ಲಿ poster ಸಿಗಲಿಲ್ಲ.\n"
+        "📸 Photo ಮಾತ್ರ ಕಳುಹಿಸು — Movie Name ಮತ್ತು links ಅನ್ನು ನಿನ್ನ ಹಿಂದಿನ postನಿಂದಲೇ ತೆಗೆದುಕೊಳ್ಳುತ್ತೇನೆ. ಮತ್ತೆ name/link ಬರೆಯಬೇಕಾಗಿಲ್ಲ.",
         parse_mode=None,
     )
 
