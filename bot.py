@@ -1098,11 +1098,22 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         prefix = re.sub(r"\b" + re.escape(tag) + r"\b", " ", prefix, flags=re.IGNORECASE)
     prefix = re.sub(r"\s+", " ", prefix).strip(" ._-()")
 
+    # Place quality immediately before the release/source tags, not after them.
+    if quality and not re.search(r"\b" + re.escape(quality) + r"\b", prefix, re.IGNORECASE):
+        source_match = re.search(
+            r"\b(?:HEVC|AV1|x264|x265|AMZN|NF|WEB-DL|WEBRip|HDRip|BluRay|BRRip|"
+            r"HDTC|HDCAM|DVDRip|DSNP|ATVP|HMAX|PCOK|ZEE5|JIO|WEB)\b",
+            prefix,
+            re.IGNORECASE,
+        )
+        if source_match:
+            prefix = (prefix[:source_match.start()].rstrip() + " " + quality + " " + prefix[source_match.start():].lstrip()).strip()
+        else:
+            prefix = (prefix + " " + quality).strip()
+
     ordered = []
     if prefix:
         ordered.append(prefix)
-    if quality and not re.search(r"\b" + re.escape(quality) + r"\b", prefix, re.IGNORECASE):
-        ordered.append(quality)
     ordered.extend(languages)
     if video_codec:
         ordered.append(video_codec)
