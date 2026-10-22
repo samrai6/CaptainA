@@ -1150,15 +1150,22 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
         if formatted:
             filename = formatted
 
-    output = f"-n  {filename}"
-    try:
-        await message.reply_text(
-            f"<b>{html.escape(output)}</b>",
-            parse_mode=ParseMode.HTML,
-        )
-    except Exception:
-        logging.exception("Could not reply with media filename")
-        await message.reply_text(output, parse_mode=None)
+    # Send all four filename formats as separate bold Telegram messages.
+    outputs = [
+        f"/l1 -n {filename}",
+        f"/l2 -n {filename}",
+        f"/l3 -n {filename}",
+        f"/l -n {filename}",
+    ]
+    for output in outputs:
+        try:
+            await message.reply_text(
+                f"<b>{html.escape(output)}</b>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            logging.exception("Could not reply with filename format: %s", output)
+            await message.reply_text(output, parse_mode=None)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
