@@ -911,7 +911,11 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     # Read BOTH the uploaded filename and the caption's MediaInfo header.
     # The caption header often contains the complete release name/source tags.
     stem, ext = os.path.splitext(filename)
-    caption_filename = extract_mediainfo_filename(raw_text)
+    caption_filename = (
+        extract_mediainfo_filename(raw_text)
+        if re.match(r"^\\s*MediaInfo\\s+of\\s+", raw_text or "", re.IGNORECASE)
+        else None
+    )
     if base_filename and caption_filename:
         caption_stem, caption_ext = os.path.splitext(clean_media_filename(caption_filename))
         if caption_stem:
