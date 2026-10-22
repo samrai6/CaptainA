@@ -1208,7 +1208,7 @@ async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Automatically reply with the media filename in the requested -n format."""
+    """Reply with a normalized filename, using the media caption/MediaInfo when available."""
     message = update.effective_message
     if not message:
         return
@@ -1217,22 +1217,28 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     if not media:
         return
 
-    filename = getattr(media, "file_name", None)
-    if not filename:
-        filename = "media_file"
-
+    filename = getattr(media, "file_name", None) or "media_file"
     filename = clean_media_filename(filename)
 
-    # Always parse the caption when present: MediaInfo captions may be plain
-    # prose rather than structured "Resolution:" / "Audio Tracks:" fields.
-    caption = message.caption or ""
-    if caption.strip():
+    # Telegram normally stores media text in message.caption. Also support
+    # a caption/text on a replied-to media message, for users who reply to a file.
+    caption = (getattr(message, "caption", None) or "").strip()
+    if not caption and message.reply_to_message:
+        replied = message.reply_to_message
+        caption = (
+            getattr(replied, "caption", None)
+            or getattr(replied, "text", None)
+            or ""
+        ).strip()
+
+    if caption:
         caption_header = extract_mediainfo_filename(caption)
-        # A "MediaInfo of <release filename>" header is often richer than the
-        # uploaded Telegram filename, so use it as the base for normalization.
-        base_for_caption = caption_header if re.match(
-            r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE
-        ) and caption_header else filename
+        is_mediainfo_header = bool(
+            re.match(r"^\\s*MediaInfo\\s+of\\s+", caption, re.IGNORECASE)
+        )
+        # Use the complete filename from the caption's MediaInfo header when present.
+        # Otherwise preserve the uploaded filename and enrich it from caption details.
+        base_for_caption = caption_header if is_mediainfo_header and caption_header else filename
         formatted = build_mediainfo_filename(caption, base_filename=base_for_caption)
         if formatted:
             filename = formatted
@@ -1245,7 +1251,6 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
         )
     except Exception:
         logging.exception("Could not reply with media filename")
-        # Retry without HTML formatting so a malformed filename cannot block the reply.
         await message.reply_text(output, parse_mode=None)
 
 
