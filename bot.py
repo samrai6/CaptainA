@@ -368,6 +368,9 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
     if edited_raw:
         try:
             image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
+            # Remove any unrelated text still left after AI editing; keep movie-title words.
+            if movie_name:
+                image = remove_non_title_text(image, movie_name)
         except Exception:
             logging.warning("Could not decode AI output; using original poster", exc_info=True)
             image = Image.open(io.BytesIO(raw)).convert("RGBA")
@@ -659,6 +662,9 @@ def find_imdb_poster(movie_name: str):
             image = item.get("i") or {}
             poster = image.get("imageUrl")
             if poster and item.get("id", "").startswith("tt"):
+                # IMDb thumbnails often include small UX/ UY resize parameters.
+                # Remove them to request the highest available source image.
+                poster = re.sub(r"\._V1_.*?(\.(?:jpe?g|png|webp))$", r"._V1_\1", poster, flags=re.IGNORECASE)
                 return poster
     except Exception:
         logging.warning("IMDb poster lookup failed for %r", movie_name, exc_info=True)
