@@ -894,7 +894,17 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     filename = getattr(media, "file_name", None)
     if not filename:
         filename = "media_file"
-    output = f"-n {filename}"
+
+    # Remove channel tags from both ends, but preserve the actual file extension.
+    filename = re.sub(r"^\\s*@[\\w]+\\s*~\\s*", "", filename, count=1)
+    filename = re.sub(
+        r"\\s*~\\s*@[\\w]+(?=\\.[^.]+$|$)",
+        "",
+        filename,
+        count=1,
+    ).strip()
+
+    output = f"-n  {filename}"
     try:
         await message.reply_text(
             f"<b>{html.escape(output)}</b>",
