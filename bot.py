@@ -913,7 +913,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     stem, ext = os.path.splitext(filename)
     caption_filename = (
         extract_mediainfo_filename(raw_text)
-        if re.match(r"^\\s*MediaInfo\\s+of\\s+", raw_text or "", re.IGNORECASE)
+        if re.match(r"^\s*MediaInfo\s+of\s+", raw_text or "", re.IGNORECASE)
         else None
     )
     if base_filename and caption_filename:
