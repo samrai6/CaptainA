@@ -271,13 +271,14 @@ def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
                 source.convert("RGB").save(input_path, format="PNG")
 
             prompt = (
-                "Professionally enhance this existing movie poster for a cinematic look. "
-                "Preserve the same actors, faces, costumes, identity, composition, and important subjects. "
-                "Improve lighting, contrast, detail, sharpness, and cinematic color grading. "
-                "Remove small promotional credits, taglines, and unrelated text where possible, "
-                "but preserve the actual movie title and all recognizable artwork. "
-                f"The movie is: {movie_name}. Do not add any new text, logos, or watermark. "
-                "Do not crop heads or important subjects."
+                "Edit this exact movie poster conservatively. Preserve the original actors, faces, bodies, "
+                "skin, costumes, pose, background artwork, framing, and composition exactly; never blur, erase, "
+                "replace, redraw, or invent any person or body part. Keep the original image sharp and detailed. "
+                "The ONLY text that should remain visible is the exact movie title: "
+                f"'{movie_name}'. Remove other readable poster text such as taglines, credits, release dates, "
+                "and extra labels if they can be removed without changing or damaging any person or artwork. "
+                "If removing text would damage the image, leave that text rather than erase image content. "
+                "Do not add text, logos, watermarks, or new objects. Do not crop or resize the poster."
             )
             client = Client("black-forest-labs/FLUX.1-Kontext-Dev", verbose=False)
             result = client.predict(
