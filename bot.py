@@ -714,14 +714,17 @@ def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
     title = " ".join(literal_bold(word) for word in movie_name.split())
-    # Fixed Button Mode caption: show the link-help channel instead of the saved footer.
     help_text = literal_bold("𝗛𝗢𝗪 𝗧𝗢 𝗢𝗣𝗘𝗡 𝗟𝗶𝗡𝗞🔗👇👇")
-    help_url = literal_bold("**https://t.me/Hwotoopenlink**")
+    help_url = literal_bold("https://t.me/Hwotoopenlink")
+    footer = footer.replace("\\n", "\n")
+    footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
+    footer_text = render_footer("\n".join(footer_lines))
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
         f"{help_text}\n"
-        f"{help_url}"
+        f"{help_url}\n"
+        f"{footer_text}"
     )
 
 
