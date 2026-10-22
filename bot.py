@@ -1062,7 +1062,12 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
 
     # Prefer detected language tracks; otherwise retain language tags already in the filename.
     languages = []
+    language_name_by_tag = {tag: language for language, tag in audio_languages}
     for tag in language_tags:
+        full_name = language_name_by_tag.get(tag, "")
+        # Avoid duplicating "Kannada" as "Kan" when the filename already says Kannada.
+        if full_name and re.search(r"\b" + re.escape(full_name) + r"\b", work, re.IGNORECASE):
+            continue
         if tag not in languages:
             languages.append(tag)
     for tag in ("Kan", "Mal", "Tam", "Tel", "Hin", "Eng", "Ben", "Mar", "Pun", "Urd", "Jpn", "Kor", "Chi", "Spa", "Fre", "Ger", "Rus", "Ara"):
