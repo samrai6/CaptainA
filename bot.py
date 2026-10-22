@@ -881,6 +881,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(HELP_TEXT, parse_mode=None)
 
 
+async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Format a pasted/forwarded MediaInfo header as a clean -n filename."""
+    message = update.effective_message
+    if not message or not message.text:
+        return
+
+    text = message.text.strip()
+    first_line = text.splitlines()[0].strip()
+
+    # Accept headers such as: "MediaInfo of @CHANNEL ~ Movie Name.mkv"
+    match = re.match(r"^MediaInfo\\s+of\\s+(.+?)\\s*$", first_line, flags=re.IGNORECASE)
+    if not match:
+        return
+
+    filename = match.group(1).strip().strip("`'\\"")
+    # Remove a channel prefix and channel suffix, keeping the real file extension.
+    filename = re.sub(r"^\\s*@[\\w]+\\s*~\\s*", "", filename, count=1)
+    filename = re.sub(r"\\s*~\\s*@[\\w]+(?=\\.[^.]+$|$)", "", filename, count=1)
+    # Some MediaInfo bots append a trailing channel/source tag after the extension.
+    filename = re.sub(r"\\s+@[\\w]+\\s*$", "", filename).strip()
+
+    if not filename:
+        await message.reply_text("❌ MediaInfo headerನಲ್ಲಿ filename ಸಿಗಲಿಲ್ಲ.", parse_mode=None)
+        return
+
+    output = f"-n  {filename}"
+    await message.reply_text(f"<b>{html.escape(output)}</b>", parse_mode=ParseMode.HTML)
+
+
 async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Automatically reply with the media filename in the requested -n format."""
     message = update.effective_message
@@ -1789,6 +1818,7 @@ def main():
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
 
