@@ -360,9 +360,6 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         if edited_raw:
             try:
                 image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
-                # Remove unrelated text only in AI mode; this can be imperfect.
-                if movie_name:
-                    image = remove_non_title_text(image, movie_name)
             except Exception:
                 logging.warning("Could not decode AI output; using original poster", exc_info=True)
                 image = Image.open(io.BytesIO(raw)).convert("RGBA")
