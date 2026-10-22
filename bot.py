@@ -893,7 +893,7 @@ async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TY
     if not match:
         return
 
-    filename = match.group(1).strip().strip("'""")
+    filename = match.group(1).strip().strip("'\"")
     filename = re.sub(r"^\s*@[A-Za-z0-9_]+\s*~\s*", "", filename, count=1)
     filename = re.sub(r"\s*~\s*@[A-Za-z0-9_]+(?=\.[^.]+$|$)", "", filename, count=1)
     filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
