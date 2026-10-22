@@ -104,7 +104,7 @@ def init_footer_db():
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
-DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1, "ai_edit_enabled": 0}
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "@SKR_updates", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1, "ai_edit_enabled": 0}
 
 
 def get_poster_settings(user_id: int) -> dict:
@@ -113,10 +113,6 @@ def get_poster_settings(user_id: int) -> dict:
         row = _mongo_poster_settings.find_one({"user_id": user_id})
         if row:
             settings.update({key: row[key] for key in settings if key in row})
-            # Migrate the old built-in watermark to the selected cinematic style.
-            if settings["watermark_text"] == "@SKR_updates":
-                settings["watermark_text"] = "★ SKR UPDATES ★"
-                _mongo_poster_settings.update_one({"user_id": user_id}, {"$set": {"watermark_text": settings["watermark_text"]}})
         return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
         row = conn.execute("SELECT watermark_text, watermark_size, watermark_position, watermark_enabled, ai_edit_enabled FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
@@ -357,29 +353,22 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         raise ValueError("Poster image is too large")
     ai_enabled = bool(movie_name and settings.get("ai_edit_enabled", 0))
     if not ai_enabled:
-        # AI OFF means use the original IMDb poster as-is: no OCR cleanup and no watermark.
-        with Image.open(io.BytesIO(raw)) as source:
-            image = source.convert("RGB")
-        output = io.BytesIO()
-        image.save(output, format="JPEG", quality=94, optimize=True)
-        return output.getvalue()
-
-    edited_raw = ai_edit_poster(raw, movie_name)
-    if edited_raw:
-        try:
-            image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
-            # Remove any unrelated text still left after AI editing; keep movie-title words.
-            if movie_name:
-                image = remove_non_title_text(image, movie_name)
-        except Exception:
-            logging.warning("Could not decode AI output; using original poster", exc_info=True)
-            image = Image.open(io.BytesIO(raw)).convert("RGBA")
-            if movie_name:
-                image = remove_non_title_text(image, movie_name)
-    else:
+        # Preserve the original poster pixels; add only the configured watermark.
         image = Image.open(io.BytesIO(raw)).convert("RGBA")
-        if movie_name:
-            image = remove_non_title_text(image, movie_name)
+    else:
+        edited_raw = ai_edit_poster(raw, movie_name)
+        if edited_raw:
+            try:
+                image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
+                # Remove unrelated text only in AI mode; this can be imperfect.
+                if movie_name:
+                    image = remove_non_title_text(image, movie_name)
+            except Exception:
+                logging.warning("Could not decode AI output; using original poster", exc_info=True)
+                image = Image.open(io.BytesIO(raw)).convert("RGBA")
+        else:
+            # If AI service fails, keep the original poster untouched.
+            image = Image.open(io.BytesIO(raw)).convert("RGBA")
     # Keep the original/generated poster dimensions; do not force a fixed output size.
     width, height = image.size
     draw = ImageDraw.Draw(image, "RGBA")
