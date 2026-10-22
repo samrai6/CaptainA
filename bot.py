@@ -881,29 +881,61 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(HELP_TEXT, parse_mode=None)
 
 
+def extract_mediainfo_filename(raw_text: str):
+    """Extract a filename from a MediaInfo bot message/header."""
+    if not raw_text:
+        return None
+
+    first_line = raw_text.strip().splitlines()[0].strip()
+    match = re.match(r"^MediaInfo\\s+of\\s+(.+?)\\s*$", first_line, flags=re.IGNORECASE)
+    filename = match.group(1).strip().strip("'\\"") if match else first_line.strip().strip("'\\"")
+    filename = re.sub(r"^\\s*@[A-Za-z0-9_]+\\s*~\\s*", "", filename, count=1)
+    filename = re.sub(r"\\s*~\\s*@[A-Za-z0-9_]+(?=\\.[^.]+$|$)", "", filename, count=1)
+    filename = re.sub(r"\\s+@[A-Za-z0-9_]+\\s*$", "", filename).strip()
+    return filename or None
+
+
+async def send_mediainfo_filename(message, raw_text: str):
+    filename = extract_mediainfo_filename(raw_text)
+    if not filename:
+        await message.reply_text(
+            "❌ MediaInfo filename ಸಿಗಲಿಲ್ಲ. MediaInfo bot‌ನ message ಅನ್ನು reply ಮಾಡಿ /mediainfo ಕಳುಹಿಸು.",
+            parse_mode=None,
+        )
+        return
+    output = f"-n  {filename}"
+    await message.reply_text(f"<b>{html.escape(output)}</b>", parse_mode=ParseMode.HTML)
+
+
+async def mediainfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Format a replied-to MediaInfo message or text supplied with /mediainfo."""
+    message = update.effective_message
+    if not message:
+        return
+
+    source_text = " ".join(context.args).strip() if context.args else ""
+    if not source_text and message.reply_to_message:
+        replied = message.reply_to_message
+        source_text = replied.text or replied.caption or ""
+
+    if not source_text:
+        await message.reply_text(
+            "MediaInfo messageಗೆ Reply ಮಾಡಿ /mediainfo ಕಳುಹಿಸು. ಅಥವಾ /mediainfo MediaInfo of Movie.Name.mkv ಎಂದು ಕಳುಹಿಸು.",
+            parse_mode=None,
+        )
+        return
+
+    await send_mediainfo_filename(message, source_text)
+
+
 async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Format a pasted/forwarded MediaInfo headers as a clean -n filename."""
+    """Automatically format MediaInfo headers pasted into chat."""
     message = update.effective_message
     if not message or not message.text:
         return
-
-    text = message.text.strip()
-    first_line = text.splitlines()[0].strip()
-    match = re.match(r"^MediaInfo\s+of\s+(.+?)\s*$", first_line, flags=re.IGNORECASE)
-    if not match:
+    if not re.match(r"^\\s*MediaInfo\\s+of\\s+", message.text, flags=re.IGNORECASE):
         return
-
-    filename = match.group(1).strip().strip("'\"")
-    filename = re.sub(r"^\s*@[A-Za-z0-9_]+\s*~\s*", "", filename, count=1)
-    filename = re.sub(r"\s*~\s*@[A-Za-z0-9_]+(?=\.[^.]+$|$)", "", filename, count=1)
-    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
-
-    if not filename:
-        await message.reply_text("❌ MediaInfo headerನಲ್ಲಿ filename ಸಿಗಲಿಲ್ಲ.", parse_mode=None)
-        return
-
-    output = f"-n  {filename}"
-    await message.reply_text(f"<b>{html.escape(output)}</b>", parse_mode=ParseMode.HTML)
+    await send_mediainfo_filename(message, message.text)
 
 
 async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1802,6 +1834,7 @@ def main():
     app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("shortlink", shortlink_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("mediainfo", mediainfo_command))
     app.add_handler(CommandHandler("normal", normal_mode))
     app.add_handler(CommandHandler("buttons", buttons_mode))
     app.add_handler(CommandHandler("buttonsettings", buttonsettings))
