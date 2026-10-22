@@ -887,11 +887,11 @@ def extract_mediainfo_filename(raw_text: str):
         return None
 
     first_line = raw_text.strip().splitlines()[0].strip()
-    match = re.match(r"^MediaInfo\\s+of\\s+(.+?)\\s*$", first_line, flags=re.IGNORECASE)
-    filename = match.group(1).strip().strip("'\\"") if match else first_line.strip().strip("'\\"")
-    filename = re.sub(r"^\\s*@[A-Za-z0-9_]+\\s*~\\s*", "", filename, count=1)
-    filename = re.sub(r"\\s*~\\s*@[A-Za-z0-9_]+(?=\\.[^.]+$|$)", "", filename, count=1)
-    filename = re.sub(r"\\s+@[A-Za-z0-9_]+\\s*$", "", filename).strip()
+    match = re.match(r"^MediaInfo\s+of\s+(.+?)\s*$", first_line, flags=re.IGNORECASE)
+    filename = match.group(1).strip().strip("'\"") if match else first_line.strip().strip("'\"")
+    filename = re.sub(r"^\s*@[A-Za-z0-9_]+\s*~\s*", "", filename, count=1)
+    filename = re.sub(r"\s*~\s*@[A-Za-z0-9_]+(?=\.[^.]+$|$)", "", filename, count=1)
+    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
     return filename or None
 
 
@@ -933,7 +933,7 @@ async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TY
     message = update.effective_message
     if not message or not message.text:
         return
-    if not re.match(r"^\\s*MediaInfo\\s+of\\s+", message.text, flags=re.IGNORECASE):
+    if not re.match(r"^\s*MediaInfo\s+of\s+", message.text, flags=re.IGNORECASE):
         return
     await send_mediainfo_filename(message, message.text)
 
