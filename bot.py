@@ -215,14 +215,18 @@ def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
                 source.convert("RGB").save(input_path, format="PNG")
 
             prompt = (
-                "Edit this exact movie poster conservatively. Preserve the original actors, faces, bodies, "
-                "skin, costumes, pose, background artwork, framing, and composition exactly; never blur, erase, "
-                "replace, redraw, or invent any person or body part. Keep the original image sharp and detailed. "
-                "The ONLY text that should remain visible is the exact movie title: "
-                f"'{movie_name}'. Remove other readable poster text such as taglines, credits, release dates, "
-                "and extra labels if they can be removed without changing or damaging any person or artwork. "
-                "If removing text would damage the image, leave that text rather than erase image content. "
-                "Do not add text, logos, watermarks, or new objects. Do not crop or resize the poster."
+                "Perform a high-quality, precise edit of this supplied movie poster, not a redesign. "
+                "SOURCE IMAGE FIDELITY IS THE TOP PRIORITY. Keep the same original actors and every face, "
+                "eyes, hair, body, hands, clothing, pose, lighting, colors, background, and framing unchanged. "
+                "Do not regenerate, beautify, smooth, sharpen artificially, blur, crop, resize, or replace any "
+                "part of the photograph. Preserve natural facial details and the original image texture. "
+                "TEXT RULE: the only readable text allowed is this exact movie title, character-for-character: "
+                f"'{movie_name}'. Keep that title legible and correctly spelled. Remove taglines, credits, "
+                "release dates, logos containing text, and all other lettering only where the background can "
+                "be reconstructed naturally. Never paint over a face, body, or important artwork to remove text. "
+                "If safe removal is not possible, preserve the original image region instead of damaging it. "
+                "Do not add any new text, symbols, logos, or objects. Return one clean, sharp poster with the "
+                "same aspect ratio and dimensions as the input."
             )
             client = Client("black-forest-labs/FLUX.1-Kontext-Dev", verbose=False)
             result = client.predict(
@@ -230,8 +234,8 @@ def ai_edit_poster(raw: bytes, movie_name: str) -> bytes | None:
                 prompt=prompt,
                 seed=42,
                 randomize_seed=True,
-                guidance_scale=2.5,
-                steps=12,
+                guidance_scale=3.0,
+                steps=20,
                 api_name="/infer",
             )
             image_result = result[0] if isinstance(result, (tuple, list)) else result
