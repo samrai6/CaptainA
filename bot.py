@@ -934,11 +934,15 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
                 additions.append("1440p")
             else:
                 additions.append("2160p")
+        else:
+            quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", raw_text, re.IGNORECASE)
+            if quality_match:
+                additions.append(quality_match.group(1) + "p")
 
     # Codec tags are based on the reported codec, not the uploader's Title field.
     video_codec = re.search(r"Video Stream[\s\S]*?Codec:\s*([^\r\n]+)", raw_text, re.IGNORECASE)
-    if video_codec:
-        codec_line = video_codec.group(1).lower()
+    codec_line = video_codec.group(1).lower() if video_codec else lower_text
+    if codec_line:
         if "av1" in codec_line:
             codec_tag = "AV1"
         elif any(token in codec_line for token in ("hevc", "h.265", "h265", "x265")):
@@ -1079,10 +1083,13 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     # If the uploaded file caption contains a MediaInfo report, use its technical details
     # while keeping the actual uploaded filename as the base title.
     caption = message.caption or ""
+    # Captions may contain either a full MediaInfo report or a short human-written summary.
     has_mediainfo = (
-        re.search(r"\bMediaInfo\s+of\s+", caption, re.IGNORECASE)
-        and re.search(r"\bResolution\s*:", caption, re.IGNORECASE)
-        and re.search(r"\b(?:Video Stream|Audio Tracks|Bitrate)\b", caption, re.IGNORECASE)
+        re.search(r"\bMediaInfo\b", caption, re.IGNORECASE)
+        or (
+            re.search(r"\b(?:Resolution|Video|Codec|Bitrate|Audio Tracks|Subtitle Tracks)\s*:", caption, re.IGNORECASE)
+            and re.search(r"\b(?:\d{3,5}\s*[x×]\s*\d{3,5}|\d{3,4}p|AV1|AVC|H\.?264|H\.?265|HEVC|x264|x265|AAC|DTS|E-AC-3|AC-3)\b", caption, re.IGNORECASE)
+        )
     )
     if has_mediainfo:
         formatted = build_mediainfo_filename(caption, base_filename=filename)
