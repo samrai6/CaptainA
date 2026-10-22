@@ -378,7 +378,7 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
     label = str(settings.get("watermark_text", "@SKR_updates"))[:80]
     if not settings.get("watermark_enabled", 1) or not label:
         output = io.BytesIO()
-        image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+        image.save(output, format="PNG", optimize=True)
         return output.getvalue()
     bbox = draw.textbbox((0, 0), label, font=font, stroke_width=1)
     text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -388,7 +388,7 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
     y = margin if pos.startswith("top") else (height - text_h) // 2 if pos == "center" else height - text_h - margin
     draw.text((x, y), label, font=font, fill=(255, 255, 255, 245), stroke_width=max(1, font_size // 18), stroke_fill=(0, 0, 0, 170))
     output = io.BytesIO()
-    image.convert("RGB").save(output, format="JPEG", quality=94, optimize=True)
+    image.save(output, format="PNG", optimize=True)
     return output.getvalue()
 
 
