@@ -85,10 +85,12 @@ def init_footer_db():
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
             conn.execute("CREATE TABLE IF NOT EXISTS shortxlinks_tokens (user_id INTEGER PRIMARY KEY, api_token TEXT NOT NULL)")
-            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1)")
+            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1, ai_edit_enabled INTEGER NOT NULL DEFAULT 1)")
             existing_poster_columns = {row[1] for row in conn.execute("PRAGMA table_info(poster_settings)").fetchall()}
             if "watermark_enabled" not in existing_poster_columns:
                 conn.execute("ALTER TABLE poster_settings ADD COLUMN watermark_enabled INTEGER NOT NULL DEFAULT 1")
+            if "ai_edit_enabled" not in existing_poster_columns:
+                conn.execute("ALTER TABLE poster_settings ADD COLUMN ai_edit_enabled INTEGER NOT NULL DEFAULT 1")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -102,7 +104,7 @@ def init_footer_db():
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
-DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1}
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1, "ai_edit_enabled": 1}
 
 
 def get_poster_settings(user_id: int) -> dict:
@@ -117,9 +119,9 @@ def get_poster_settings(user_id: int) -> dict:
                 _mongo_poster_settings.update_one({"user_id": user_id}, {"$set": {"watermark_text": settings["watermark_text"]}})
         return settings
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position, watermark_enabled FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT watermark_text, watermark_size, watermark_position, watermark_enabled, ai_edit_enabled FROM poster_settings WHERE user_id = ?", (user_id,)).fetchone()
     if row:
-        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position", "watermark_enabled"], row)))
+        settings.update(dict(zip(["watermark_text", "watermark_size", "watermark_position", "watermark_enabled", "ai_edit_enabled"], row)))
         # Migrate the old built-in watermark to the selected cinematic style.
         if settings["watermark_text"] == "@SKR_updates":
             settings["watermark_text"] = "★ 𝑺𝑲𝑹 𝑼𝑷𝑫𝑨𝑻𝑬𝑺 ★"
@@ -137,9 +139,9 @@ def save_poster_setting(user_id: int, key: str, value):
     settings = get_poster_settings(user_id)
     settings[key] = value
     with sqlite3.connect(FOOTER_DB_PATH) as conn:
-        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position, watermark_enabled) VALUES (?, ?, ?, ?, ?) "
-                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position, watermark_enabled=excluded.watermark_enabled",
-                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"], settings["watermark_enabled"]))
+        conn.execute("INSERT INTO poster_settings (user_id, watermark_text, watermark_size, watermark_position, watermark_enabled, ai_edit_enabled) VALUES (?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(user_id) DO UPDATE SET watermark_text=excluded.watermark_text, watermark_size=excluded.watermark_size, watermark_position=excluded.watermark_position, watermark_enabled=excluded.watermark_enabled, ai_edit_enabled=excluded.ai_edit_enabled",
+                     (user_id, settings["watermark_text"], settings["watermark_size"], settings["watermark_position"], settings["watermark_enabled"], settings["ai_edit_enabled"]))
 
 
 def search_google_image_posters(movie_name: str) -> list:
@@ -353,7 +355,7 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         raw = response.read(15 * 1024 * 1024 + 1)
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("Poster image is too large")
-    edited_raw = ai_edit_poster(raw, movie_name) if movie_name else None
+    edited_raw = ai_edit_poster(raw, movie_name) if movie_name and settings.get("ai_edit_enabled", 1) else None
     if edited_raw:
         try:
             image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
@@ -1566,6 +1568,7 @@ def watermark_settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔠 Change Font Size", callback_data="wm:edit_size")],
         [InlineKeyboardButton("📍 Choose Position", callback_data="wm:positions")],
         [InlineKeyboardButton("🔕 Disable Watermark" if enabled else "🔛 Enable Watermark", callback_data="wm:toggle")],
+        [InlineKeyboardButton("🤖 AI Edit: ON" if settings.get("ai_edit_enabled", 1) else "🤖 AI Edit: OFF", callback_data="wm:ai_toggle")],
         [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
     ])
 
@@ -1644,7 +1647,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "settings:watermark":
         s = get_poster_settings(user.id)
         status = "ON 🔛" if s.get("watermark_enabled", 1) else "OFF 🔕"
-        await query.edit_message_text(f"🖼️ Watermark Settings\n\nStatus: {status}\nText: {s['watermark_text']}\nFont size: {s['watermark_size']}\nPosition: {s['watermark_position']}\n\nಈ settings ಹೊಸದಾಗಿ ಆಯ್ಕೆ ಮಾಡುವ posters ಮೇಲೆ ಅನ್ವಯವಾಗುತ್ತವೆ.", reply_markup=watermark_settings_keyboard(s), parse_mode=None)
+        await query.edit_message_text(f"🖼️ Poster Settings\n\nWatermark: {status}\nText: {s['watermark_text']}\nFont size: {s['watermark_size']}\nPosition: {s['watermark_position']}\nAI Edit: {'ON' if s.get('ai_edit_enabled', 1) else 'OFF'}\n\nAI Edit OFF ಮಾಡಿದರೆ AI enhancement skip ಆಗುತ್ತದೆ; watermark ಇನ್ನೂ ಅನ್ವಯವಾಗುತ್ತದೆ.", reply_markup=watermark_settings_keyboard(s), parse_mode=None)
         return
     if data == "settings:back":
         await query.edit_message_text("⚙️ Settings menu ಮತ್ತೆ ತೆರೆಯಲು /start ಒತ್ತು.")
@@ -1667,7 +1670,17 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "enabled 🔛" if s.get("watermark_enabled", 1) else "disabled 🔕"
         await query.edit_message_text("✅ Watermark " + status + ".", reply_markup=watermark_settings_keyboard(s), parse_mode=None)
         return
-    if data.startswith("wm:pos:"):
+    if data == "wm:ai_toggle":
+        s = get_poster_settings(user.id)
+        save_poster_setting(user.id, "ai_edit_enabled", 0 if s.get("ai_edit_enabled", 1) else 1)
+        s = get_poster_settings(user.id)
+        status = "ON 🤖" if s.get("ai_edit_enabled", 1) else "OFF ⏸️"
+        await query.edit_message_text(
+            f"✅ AI Poster Edit {status}.\n\n" +
+            ("AI enhancement ಹೊಸ posters ಮೇಲೆ ನಡೆಯುತ್ತದೆ." if s.get("ai_edit_enabled", 1) else "AI enhancement skip ಆಗುತ್ತದೆ. Posterಗೆ watermark/OCR cleanup ಮುಂದುವರಿಯಬಹುದು."),
+            reply_markup=watermark_settings_keyboard(s), parse_mode=None)
+        return
+    if data.startswith("wm:pos:")
         pos = data.split(":", 2)[2]
         if pos in {"bottom-right", "bottom-left", "top-right", "top-left", "center"}:
             save_poster_setting(user.id, "watermark_position", pos)
