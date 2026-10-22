@@ -1205,19 +1205,17 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
 
     filename = clean_media_filename(filename)
 
-    # If the uploaded file caption contains a MediaInfo report, use its technical details
-    # while keeping the actual uploaded filename as the base title.
+    # Always parse the caption when present: MediaInfo captions may be plain
+    # prose rather than structured "Resolution:" / "Audio Tracks:" fields.
     caption = message.caption or ""
-    # Captions may contain either a full MediaInfo report or a short human-written summary.
-    has_mediainfo = (
-        re.search(r"\bMediaInfo\b", caption, re.IGNORECASE)
-        or (
-            re.search(r"\b(?:Resolution|Video|Codec|Bitrate|Audio Tracks|Subtitle Tracks)\s*:", caption, re.IGNORECASE)
-            and re.search(r"\b(?:\d{3,5}\s*[x×]\s*\d{3,5}|\d{3,4}p|AV1|AVC|H\.?264|H\.?265|HEVC|x264|x265|AAC|DTS|E-AC-3|AC-3)\b", caption, re.IGNORECASE)
-        )
-    )
-    if has_mediainfo:
-        formatted = build_mediainfo_filename(caption, base_filename=filename)
+    if caption.strip():
+        caption_header = extract_mediainfo_filename(caption)
+        # A "MediaInfo of <release filename>" header is often richer than the
+        # uploaded Telegram filename, so use it as the base for normalization.
+        base_for_caption = caption_header if re.match(
+            r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE
+        ) and caption_header else filename
+        formatted = build_mediainfo_filename(caption, base_filename=base_for_caption)
         if formatted:
             filename = formatted
 
