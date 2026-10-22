@@ -1049,7 +1049,7 @@ async def shortlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     api_token = get_shortxlinks_token(update.effective_user.id) if update.effective_user else ""
     if not api_token:
         await message.reply_text(
-            "❌ API token set ಆಗಿಲ್ಲ. Botನಲ್ಲಿ /setshortlinktoken ಬಳಸಿ token save ಮಾಡು.",
+            "❌ API token set ಆಗಿಲ್ಲ. /start ಒತ್ತು → 🔗 ShortXLinks API Settings → 🔑 Set / Change API Token ಆಯ್ಕೆ ಮಾಡು.",
             parse_mode=None,
         )
         return
@@ -1081,7 +1081,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("awaiting_shortxlinks_token", None)
         token = message.text.strip()
         if not token or len(token) > 500 or any(ch.isspace() for ch in token):
-            await message.reply_text("❌ Token format ಸರಿಯಿಲ್ಲ. ಮತ್ತೆ /setshortlinktoken ಬಳಸು.", parse_mode=None)
+            await message.reply_text("❌ Token format ಸರಿಯಿಲ್ಲ. /start → 🔗 ShortXLinks API Settings ಮೂಲಕ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸು.", parse_mode=None)
             return
         save_shortxlinks_token(user.id, token)
         await message.reply_text("✅ ShortXLinks API token bot settingsನಲ್ಲಿ save ಆಯಿತು. ಈಗ /shortlink ಬಳಸಿ.", parse_mode=None)
@@ -1094,7 +1094,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         api_token = get_shortxlinks_token(user.id)
         if not api_token:
-            await message.reply_text("❌ API token set ಆಗಿಲ್ಲ. Botನಲ್ಲಿ /setshortlinktoken ಬಳಸಿ token save ಮಾಡು.", parse_mode=None)
+            await message.reply_text("❌ API token set ಆಗಿಲ್ಲ. /start ಒತ್ತು → 🔗 ShortXLinks API Settings → 🔑 Set / Change API Token ಆಯ್ಕೆ ಮಾಡು.", parse_mode=None)
             return
         await _send_shortlink(message, long_url, api_token)
         return
