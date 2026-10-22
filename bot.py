@@ -355,7 +355,16 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         raw = response.read(15 * 1024 * 1024 + 1)
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("Poster image is too large")
-    edited_raw = ai_edit_poster(raw, movie_name) if movie_name and settings.get("ai_edit_enabled", 0) else None
+    ai_enabled = bool(movie_name and settings.get("ai_edit_enabled", 0))
+    if not ai_enabled:
+        # AI OFF means use the original IMDb poster as-is: no OCR cleanup and no watermark.
+        with Image.open(io.BytesIO(raw)) as source:
+            image = source.convert("RGB")
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=94, optimize=True)
+        return output.getvalue()
+
+    edited_raw = ai_edit_poster(raw, movie_name)
     if edited_raw:
         try:
             image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
@@ -1456,19 +1465,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
-    # First line is used for poster search (example: "KGF 2018"); second line starts the actual caption.
-    # Search Google Images and IMDb concurrently to reduce poster lookup latency.
-    google_task = asyncio.to_thread(search_google_image_posters, imdb_title)
-    imdb_task = asyncio.to_thread(find_imdb_poster, imdb_title)
-    google_result, imdb_result = await asyncio.gather(google_task, imdb_task, return_exceptions=True)
-    posters = google_result if isinstance(google_result, list) else []
-    imdb_poster = imdb_result if isinstance(imdb_result, str) and imdb_result else None
-    if isinstance(google_result, Exception):
-        logging.warning("Google poster search failed: %s", google_result)
-    if isinstance(imdb_result, Exception):
-        logging.warning("IMDb poster search failed: %s", imdb_result)
-    if imdb_poster and all(item["url"] != imdb_poster for item in posters):
-        posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
+    # AI OFF: search IMDb only and keep its poster original (no OCR cleanup or watermark).
+    # AI ON: search Google Images and IMDb concurrently for poster options.
+    watermark_settings = get_poster_settings(user.id)
+    if watermark_settings.get("ai_edit_enabled", 0):
+        google_task = asyncio.to_thread(search_google_image_posters, imdb_title)
+        imdb_task = asyncio.to_thread(find_imdb_poster, imdb_title)
+        google_result, imdb_result = await asyncio.gather(google_task, imdb_task, return_exceptions=True)
+        posters = google_result if isinstance(google_result, list) else []
+        imdb_poster = imdb_result if isinstance(imdb_result, str) and imdb_result else None
+        if isinstance(google_result, Exception):
+            logging.warning("Google poster search failed: %s", google_result)
+        if isinstance(imdb_result, Exception):
+            logging.warning("IMDb poster search failed: %s", imdb_result)
+        if imdb_poster and all(item["url"] != imdb_poster for item in posters):
+            posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
+    else:
+        imdb_result = await asyncio.to_thread(find_imdb_poster, imdb_title)
+        posters = [{"url": imdb_result, "label": "IMDb poster", "year": ""}] if isinstance(imdb_result, str) and imdb_result else []
     if posters:
         context.user_data.pop("pending_manual_photo", None)
         context.user_data.pop("pending_manual_multi_photo", None)
