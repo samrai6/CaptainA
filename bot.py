@@ -881,6 +881,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(HELP_TEXT, parse_mode=None)
 
 
+def clean_media_filename(filename: str):
+    """Remove uploader usernames joined to filenames by dash/tilde separators."""
+    if not filename:
+        return filename
+    filename = re.sub(r"^\s*@[\w]+(?:\s*[~\-–—]\s*)+", "", filename, count=1)
+    filename = re.sub(r"(?:\s*[~\-–—]\s*)+@[\w]+(?=\.[^.]+$|$)", "", filename, count=1)
+    filename = re.sub(r"\s+@[\w]+\s*$", "", filename).strip()
+    filename = re.sub(r"^\s*[~–—]\s*", "", filename).strip()
+    return filename
+
+
 def extract_mediainfo_filename(raw_text: str):
     """Extract the filename from the first line of a MediaInfo message."""
     if not raw_text:
@@ -888,15 +899,12 @@ def extract_mediainfo_filename(raw_text: str):
     first_line = raw_text.strip().splitlines()[0].strip()
     match = re.match(r"^MediaInfo\s+of\s+(.+?)\s*$", first_line, flags=re.IGNORECASE)
     filename = match.group(1).strip().strip("'\"") if match else first_line.strip().strip("'\"")
-    filename = re.sub(r"^\s*@[A-Za-z0-9_]+\s*~\s*", "", filename, count=1)
-    filename = re.sub(r"\s*~\s*@[A-Za-z0-9_]+(?=\.[^.]+$|$)", "", filename, count=1)
-    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
+    filename = clean_media_filename(filename)
     return filename or None
 
-
-def build_mediainfo_filename(raw_text: str):
-    """Build a release filename using details actually present in the MediaInfo message."""
-    filename = extract_mediainfo_filename(raw_text)
+def build_mediainfo_filename(raw_text: str, base_filename: str = None):
+    """Build a release filename from MediaInfo details and optionally the uploaded filename."""
+    filename = clean_media_filename(base_filename) if base_filename else extract_mediainfo_filename(raw_text)
     if not filename:
         return None
 
@@ -1066,13 +1074,20 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     if not filename:
         filename = "media_file"
 
-    # Remove uploader/user tags such as "@name ~", "@name -", "~ @name", or "- @name".
-    # Also remove a trailing uploader tag, while preserving the real filename and extension.
-    filename = re.sub(r"^\s*@[\w]+(?:\s*[~\-–—]\s*)+", "", filename, count=1)
-    filename = re.sub(r"(?:\s*[~\-–—]\s*)+@[\w]+(?=\.[^.]+$|$)", "", filename, count=1)
-    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
-    # Clean up any leftover separator at the beginning without stripping hyphens inside the title.
-    filename = re.sub(r"^\s*[~–—]\s*", "", filename).strip()
+    filename = clean_media_filename(filename)
+
+    # If the uploaded file caption contains a MediaInfo report, use its technical details
+    # while keeping the actual uploaded filename as the base title.
+    caption = message.caption or ""
+    has_mediainfo = (
+        re.search(r"\bMediaInfo\s+of\s+", caption, re.IGNORECASE)
+        and re.search(r"\bResolution\s*:", caption, re.IGNORECASE)
+        and re.search(r"\b(?:Video Stream|Audio Tracks|Bitrate)\b", caption, re.IGNORECASE)
+    )
+    if has_mediainfo:
+        formatted = build_mediainfo_filename(caption, base_filename=filename)
+        if formatted:
+            filename = formatted
 
     output = f"-n  {filename}"
     try:
