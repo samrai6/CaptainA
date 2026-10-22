@@ -1012,71 +1012,114 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     if bitrate_match and not re.search(r"\b\d+(?:\.\d+)?\s*kbps\b", lower_stem):
         additions.append(f"{bitrate_match.group(1)}kbps")
 
-    # Merge existing and detected tags, then enforce a stable order:
-    # title/year/quality/source -> audio languages -> codec/audio/subtitle/bitrate tags.
+    # Canonical filename layout:
+    # Movie (Year) Language/Dub Quality Source VideoCodec AudioCodec Channels Bitrate Subtitles.ext
     known_audio_tags = {tag for _, tag in audio_languages}
     known_subtitle_tags = {tag + "Sub" for _, tag in audio_languages}
-    technical_pattern = re.compile(
-        r"\b(?:AV1|x264|x265|AAC|AC3|EAC3|DDP|DTS-HD|DTS|FLAC|Opus|MP3|"
-        r"360p|480p|540p|720p|1080p|1440p|2160p|"
-        r"EngSub|KanSub|MalSub|TamSub|TelSub|HinSub|BenSub|MarSub|PunSub|UrdSub|"
-        r"JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub|"
-        r"\d+(?:\.\d+)?kbps)\b",
-        re.IGNORECASE,
-    )
-    # Remove tags from the stem to identify the title/year/quality/source prefix.
-    prefix = technical_pattern.sub("", stem)
-    for tag in known_audio_tags | known_subtitle_tags:
-        prefix = re.sub(r"\b" + re.escape(tag) + r"\b", "", prefix, flags=re.IGNORECASE)
-    prefix = re.sub(r"\s+", " ", prefix).strip(" ._-")
+    work = stem
 
-    existing_tags = re.findall(
-        r"\b(?:Eng|Hin|Tam|Tel|Kan|Mal|Ben|Mar|Pun|Urd|Jpn|Kor|Chi|Spa|Fre|Ger|Rus|Ara|"
-        r"EngSub|KanSub|MalSub|TamSub|TelSub|HinSub|BenSub|MarSub|PunSub|UrdSub|"
-        r"JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub|"
-        r"AV1|x264|x265|AAC|AC3|EAC3|DDP|DTS-HD|DTS|FLAC|Opus|MP3|"
-        r"\d+(?:\.\d+)?|kbps)\b",
-        stem,
-        re.IGNORECASE,
-    )
-    # Keep the actual language list first, followed by technical details in their normal order.
+    # Normalize common codec/audio/bitrate spellings before extracting tags.
+    work = re.sub(r"\bH\.?\s*265\b|\bH265\b", "x265", work, flags=re.IGNORECASE)
+    work = re.sub(r"\bH\.?\s*264\b|\bAVC\b", "x264", work, flags=re.IGNORECASE)
+    work = re.sub(r"\bHEVC\b", "HEVC", work, flags=re.IGNORECASE)
+    work = re.sub(r"\b(\d+(?:\.\d+)?)\s*K(?:bps|b/s)\b", r"\1kbps", work, flags=re.IGNORECASE)
+    work = re.sub(r"\bAAC\s*\+\s*(\d\.\d)\b", r"AAC \1", work, flags=re.IGNORECASE)
+    work = re.sub(r"\(\s*", " ", work)
+    work = re.sub(r"\s*\)", " ", work)
+    work = re.sub(r"\s*-\s*", " ", work)
+    work = re.sub(r"\s+", " ", work).strip()
+
+    quality = None
+    qm = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", work, re.IGNORECASE)
+    if qm:
+        quality = qm.group(1) + "p"
+
+    # Prefer detected language tracks; otherwise retain language tags already in the filename.
     languages = []
     for tag in language_tags:
         if tag not in languages:
             languages.append(tag)
-    for tag in existing_tags:
-        if tag in known_audio_tags and tag not in languages:
+    for tag in ("Kan", "Mal", "Tam", "Tel", "Hin", "Eng", "Ben", "Mar", "Pun", "Urd", "Jpn", "Kor", "Chi", "Spa", "Fre", "Ger", "Rus", "Ara"):
+        if re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE) and tag not in languages:
             languages.append(tag)
 
     subtitles = []
     for tag in subtitle_tags:
         if tag not in subtitles:
             subtitles.append(tag)
-    for tag in existing_tags:
-        if tag in known_subtitle_tags and tag not in subtitles:
+    for tag in known_subtitle_tags:
+        if re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE) and tag not in subtitles:
             subtitles.append(tag)
+    if re.search(r"\bESub\b", work, re.IGNORECASE) and "ESub" not in subtitles:
+        subtitles.append("ESub")
 
-    technical = []
-    technical_tokens = re.findall(
-        r"\b(?:AV1|x264|x265|AAC|AC3|EAC3|DDP|DTS-HD|DTS|FLAC|Opus|MP3|"
-        r"\d+(?:\.\d+)?|kbps)\b",
-        stem,
-        re.IGNORECASE,
-    )
-    for tag in additions:
-        if tag not in languages and tag not in subtitles and tag not in technical:
-            technical.append(tag)
-    # Preserve existing technical tags, in their original order, without duplicating newly detected ones.
-    for tag in technical_tokens:
-        if tag.lower() not in [x.lower() for x in technical]:
-            technical.append(tag)
-    bitrate_existing = re.search(r"\b\d+(?:\.\d+)?kbps\b", stem, re.IGNORECASE)
-    if bitrate_existing and not any(re.fullmatch(r"\d+(?:\.\d+)?kbps", x, re.IGNORECASE) for x in technical):
-        technical.append(bitrate_existing.group(0))
+    audio_codec = None
+    for codec in ("DTS-HD", "EAC3", "E-AC-3", "AC3", "AC-3", "DDP", "AAC", "DTS", "FLAC", "Opus", "MP3"):
+        if re.search(r"\b" + re.escape(codec) + r"\b", work, re.IGNORECASE) or any(codec.lower() in x.lower() for x in additions):
+            audio_codec = {"E-AC-3": "EAC3", "AC-3": "AC3"}.get(codec.upper(), codec.upper() if codec.upper() not in ("OPUS",) else "Opus")
+            break
+    if audio_codec == "E-AC-3":
+        audio_codec = "EAC3"
+    if audio_codec == "AC-3":
+        audio_codec = "AC3"
 
-    ordered = languages + technical + subtitles
-    return f"{prefix}{' ' if prefix and ordered else ''}{' '.join(ordered)}{ext}"
+    channels = None
+    for channel in ("7.1", "5.1", "2.0"):
+        if re.search(r"\b" + re.escape(channel) + r"\b", work, re.IGNORECASE) or channel in additions:
+            channels = channel
+            break
 
+    bitrate = None
+    bm = re.search(r"\b(\d+(?:\.\d+)?)\s*kbps\b", work, re.IGNORECASE)
+    if bm:
+        bitrate = bm.group(1) + "kbps"
+    else:
+        bitrate = next((x for x in additions if re.fullmatch(r"\d+(?:\.\d+)?kbps", x, re.IGNORECASE)), None)
+
+    video_codec = None
+    for codec in ("AV1", "x265", "x264"):
+        if re.search(r"\b" + re.escape(codec) + r"\b", work, re.IGNORECASE) or codec in additions:
+            video_codec = codec
+            break
+
+    # Remove technical tokens from the title/source portion while preserving title, year, dub/language, quality and source labels.
+    prefix = work
+    remove_patterns = [
+        r"\b(?:AV1|x264|x265|H\.?\s*264|H\.?\s*265|AVC)\b",
+        r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DTS-HD|DTS|FLAC|Opus|MP3)\b",
+        r"\b(?:360|480|540|720|1080|1440|2160)p\b",
+        r"\b\d+(?:\.\d+)?\s*kbps\b",
+        r"\b(?:2\.0|5\.1|7\.1)\b",
+        r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
+    ]
+    for pattern in remove_patterns:
+        prefix = re.sub(pattern, " ", prefix, flags=re.IGNORECASE)
+    for tag in languages:
+        prefix = re.sub(r"\b" + re.escape(tag) + r"\b", " ", prefix, flags=re.IGNORECASE)
+    prefix = re.sub(r"\s+", " ", prefix).strip(" ._-()")
+
+    ordered = []
+    if prefix:
+        ordered.append(prefix)
+    if quality and not re.search(r"\b" + re.escape(quality) + r"\b", prefix, re.IGNORECASE):
+        ordered.append(quality)
+    ordered.extend(languages)
+    if video_codec:
+        ordered.append(video_codec)
+    if audio_codec:
+        ordered.append(audio_codec)
+    if channels:
+        ordered.append(channels)
+    if bitrate:
+        ordered.append(bitrate)
+    ordered.extend(subtitles)
+
+    # Remove duplicate tags while keeping the intended order.
+    final_tags = []
+    for tag in ordered:
+        if tag and tag.lower() not in [x.lower() for x in final_tags]:
+            final_tags.append(tag)
+    return f"{' '.join(final_tags)}{ext}"
 
 async def send_mediainfo_filename(message, raw_text: str):
     filename = build_mediainfo_filename(raw_text)
