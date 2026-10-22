@@ -766,7 +766,7 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
     title = " ".join(literal_bold(word) for word in movie_name.split())
     # Fixed Button Mode caption: show the link-help channel instead of the saved footer.
     help_text = literal_bold("𝗛𝗢𝗪 𝗧𝗢 𝗢𝗣𝗘𝗡 𝗟𝗶𝗡𝗞🔗👇👇")
-    help_url = literal_bold("https://t.me/Hwotoopenlink")
+    help_url = literal_bold("**https://t.me/Hwotoopenlink**")
     return (
         f"{title}\n"
         f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
