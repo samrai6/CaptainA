@@ -938,9 +938,75 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
 
 
+
+SHORTXLINKS_API_URL = "https://shortxlinks.com/api"
+
+
+def create_shortxlinks_url(long_url: str, api_token: str) -> str:
+    """Create a short URL through the ShortXLinks API."""
+    query = urllib.parse.urlencode({"api": api_token, "url": long_url})
+    request_url = f"{SHORTXLINKS_API_URL}?{query}"
+    request = urllib.request.Request(
+        request_url,
+        headers={"User-Agent": "CaptainA-TelegramBot/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    if payload.get("status") == "error":
+        raise ValueError(str(payload.get("message") or "ShortXLinks API returned an error."))
+    short_url = payload.get("shortenedUrl")
+    if not isinstance(short_url, str) or not short_url.startswith(("http://", "https://")):
+        raise ValueError("ShortXLinks API did not return a valid shortenedUrl.")
+    return short_url
+
+
+async def shortlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message:
+        return
+    api_token = os.getenv("SHORTXLINKS_API_KEY", "").strip()
+    if not api_token:
+        await message.reply_text(
+            "❌ ShortXLinks API key set ಆಗಿಲ್ಲ. Render → Environment ನಲ್ಲಿ SHORTXLINKS_API_KEY ಸೇರಿಸು.",
+            parse_mode=None,
+        )
+        return
+    if context.args:
+        long_url = context.args[0].strip()
+        if not long_url.startswith(("http://", "https://")):
+            await message.reply_text("❌ ಸರಿಯಾದ http:// ಅಥವಾ https:// URL ಕಳುಹಿಸು.", parse_mode=None)
+            return
+        await _send_shortlink(message, long_url, api_token)
+        return
+    context.user_data["awaiting_shortlink_url"] = True
+    await message.reply_text("🔗 Shorten ಮಾಡಬೇಕಾದ long URL ಅನ್ನು ಈಗ ಕಳುಹಿಸು.", parse_mode=None)
+
+
+async def _send_shortlink(message, long_url: str, api_token: str):
+    try:
+        short_url = await asyncio.to_thread(create_shortxlinks_url, long_url, api_token)
+    except Exception as exc:
+        logging.warning("ShortXLinks request failed: %s", exc)
+        await message.reply_text("❌ Shortlink ಮಾಡಲು ಆಗಲಿಲ್ಲ. URL/API key ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸು.", parse_mode=None)
+        return
+    await message.reply_text(f"🔗 Shortlink:\n{short_url}", parse_mode=None)
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.text or not user:
+        return
+    if context.user_data.get("awaiting_shortlink_url"):
+        context.user_data.pop("awaiting_shortlink_url", None)
+        long_url = message.text.strip()
+        if not long_url.startswith(("http://", "https://")):
+            await message.reply_text("❌ ಸರಿಯಾದ http:// ಅಥವಾ https:// URL ಕಳುಹಿಸು. ಮತ್ತೆ /shortlink ಬಳಸು.", parse_mode=None)
+            return
+        api_token = os.getenv("SHORTXLINKS_API_KEY", "").strip()
+        if not api_token:
+            await message.reply_text("❌ Render → Environment ನಲ್ಲಿ SHORTXLINKS_API_KEY ಸೇರಿಸು.", parse_mode=None)
+            return
+        await _send_shortlink(message, long_url, api_token)
         return
     if context.user_data.get("awaiting_watermark_text"):
         value = message.text.strip()
@@ -1549,6 +1615,7 @@ def main():
     app.add_handler(CommandHandler("setbuttonfooter", setbuttonfooter))
     app.add_handler(CommandHandler("buttonfooter", showbuttonfooter))
     app.add_handler(CommandHandler("resetbuttonfooter", resetbuttonfooter))
+    app.add_handler(CommandHandler("shortlink", shortlink_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("normal", normal_mode))
     app.add_handler(CommandHandler("buttons", buttons_mode))
