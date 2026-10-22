@@ -159,7 +159,7 @@ def search_google_image_posters(movie_name: str) -> list:
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
         )
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=8) as response:
             page = response.read().decode("utf-8", errors="ignore")
 
         # Google embeds source image URLs in JSON fields and imgurl query parameters.
@@ -351,7 +351,7 @@ def watermark_uploaded_photo(raw: bytes, settings: dict) -> bytes:
 
 def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = "") -> bytes:
     request = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0 SKRPhotoCaptionBot/1.0"})
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with urllib.request.urlopen(request, timeout=7) as response:
         raw = response.read(15 * 1024 * 1024 + 1)
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("Poster image is too large")
@@ -1476,7 +1476,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Do not ask the user to choose from Google Images / IMDb options.
         watermark_settings = get_poster_settings(user.id)
         watermarked = None
-        for poster in posters:
+        for poster in posters[:3]:
             try:
                 watermarked = await asyncio.to_thread(
                     make_watermarked_poster, poster["url"], watermark_settings, movie_name
