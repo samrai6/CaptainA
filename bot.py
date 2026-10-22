@@ -85,12 +85,12 @@ def init_footer_db():
             )
             conn.execute("CREATE TABLE IF NOT EXISTS user_dumps (user_id INTEGER NOT NULL, channel_id TEXT NOT NULL, UNIQUE(user_id, channel_id))")
             conn.execute("CREATE TABLE IF NOT EXISTS shortxlinks_tokens (user_id INTEGER PRIMARY KEY, api_token TEXT NOT NULL)")
-            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1, ai_edit_enabled INTEGER NOT NULL DEFAULT 1)")
+            conn.execute("CREATE TABLE IF NOT EXISTS poster_settings (user_id INTEGER PRIMARY KEY, watermark_text TEXT NOT NULL DEFAULT '@SKR_updates', watermark_size INTEGER NOT NULL DEFAULT 28, watermark_position TEXT NOT NULL DEFAULT 'bottom-right', watermark_enabled INTEGER NOT NULL DEFAULT 1, ai_edit_enabled INTEGER NOT NULL DEFAULT 0)")
             existing_poster_columns = {row[1] for row in conn.execute("PRAGMA table_info(poster_settings)").fetchall()}
             if "watermark_enabled" not in existing_poster_columns:
                 conn.execute("ALTER TABLE poster_settings ADD COLUMN watermark_enabled INTEGER NOT NULL DEFAULT 1")
             if "ai_edit_enabled" not in existing_poster_columns:
-                conn.execute("ALTER TABLE poster_settings ADD COLUMN ai_edit_enabled INTEGER NOT NULL DEFAULT 1")
+                conn.execute("ALTER TABLE poster_settings ADD COLUMN ai_edit_enabled INTEGER NOT NULL DEFAULT 0")
             existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_settings)").fetchall()}
             for column, definition in [
                 ("download_text", "TEXT NOT NULL DEFAULT '⬇️ Download'"),
@@ -104,7 +104,7 @@ def init_footer_db():
         logging.warning("MongoDB URI not found; using local SQLite footer storage.")
 
 
-DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1, "ai_edit_enabled": 1}
+DEFAULT_POSTER_SETTINGS = {"watermark_text": "★ SKR UPDATES ★", "watermark_size": 28, "watermark_position": "bottom-right", "watermark_enabled": 1, "ai_edit_enabled": 0}
 
 
 def get_poster_settings(user_id: int) -> dict:
@@ -355,7 +355,7 @@ def make_watermarked_poster(image_url: str, settings: dict, movie_name: str = ""
         raw = response.read(15 * 1024 * 1024 + 1)
     if len(raw) > 15 * 1024 * 1024:
         raise ValueError("Poster image is too large")
-    edited_raw = ai_edit_poster(raw, movie_name) if movie_name and settings.get("ai_edit_enabled", 1) else None
+    edited_raw = ai_edit_poster(raw, movie_name) if movie_name and settings.get("ai_edit_enabled", 0) else None
     if edited_raw:
         try:
             image = Image.open(io.BytesIO(edited_raw)).convert("RGBA")
@@ -1576,7 +1576,7 @@ def watermark_settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔠 Change Font Size", callback_data="wm:edit_size")],
         [InlineKeyboardButton("📍 Choose Position", callback_data="wm:positions")],
         [InlineKeyboardButton("🔕 Disable Watermark" if enabled else "🔛 Enable Watermark", callback_data="wm:toggle")],
-        [InlineKeyboardButton("🤖 AI Edit: ON" if settings.get("ai_edit_enabled", 1) else "🤖 AI Edit: OFF", callback_data="wm:ai_toggle")],
+        [InlineKeyboardButton("🤖 AI Edit: ON" if settings.get("ai_edit_enabled", 0) else "🤖 AI Edit: OFF", callback_data="wm:ai_toggle")],
         [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
     ])
 
