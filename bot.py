@@ -1457,8 +1457,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
     # First line is used for poster search (example: "KGF 2018"); second line starts the actual caption.
-    posters = await asyncio.to_thread(search_google_image_posters, imdb_title)
-    imdb_poster = await asyncio.to_thread(find_imdb_poster, imdb_title)
+    # Search Google Images and IMDb concurrently to reduce poster lookup latency.
+    google_task = asyncio.to_thread(search_google_image_posters, imdb_title)
+    imdb_task = asyncio.to_thread(find_imdb_poster, imdb_title)
+    google_result, imdb_result = await asyncio.gather(google_task, imdb_task, return_exceptions=True)
+    posters = google_result if isinstance(google_result, list) else []
+    imdb_poster = imdb_result if isinstance(imdb_result, str) and imdb_result else None
+    if isinstance(google_result, Exception):
+        logging.warning("Google poster search failed: %s", google_result)
+    if isinstance(imdb_result, Exception):
+        logging.warning("IMDb poster search failed: %s", imdb_result)
     if imdb_poster and all(item["url"] != imdb_poster for item in posters):
         posters.append({"url": imdb_poster, "label": "IMDb poster", "year": ""})
     if posters:
