@@ -966,7 +966,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
             additions.append(codec_tag)
 
     audio_section = re.search(r"Audio Tracks([\s\S]*?)(?:Subtitle Tracks|Technical|$)", raw_text, re.IGNORECASE)
-    audio_text = audio_section.group(1) if audio_section else ""
+    audio_text = audio_section.group(1) if audio_section else raw_text
     audio_languages = [
         ("Kannada", "Kan"), ("Malayalam", "Mal"), ("Tamil", "Tam"),
         ("Telugu", "Tel"), ("Hindi", "Hin"), ("English", "Eng"),
@@ -1022,6 +1022,18 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     bitrate_match = re.search(r"Bitrate:\s*([\d.]+)\s*kbps", raw_text, re.IGNORECASE)
     if bitrate_match and not re.search(r"\b\d+(?:\.\d+)?\s*kbps\b", lower_stem):
         additions.append(f"{bitrate_match.group(1)}kbps")
+
+    # Detect source labels even when MediaInfo is a prose summary.
+    source_tags = []
+    for pattern, tag in (
+        (r"\\bNetflix\\b|\\bNF\\b", "NF"),
+        (r"\\bAmazon\\b|\\bPrime Video\\b|\\bAMZN\\b", "AMZN"),
+        (r"\\bWEB[- ]?DL\\b|\\bweb download\\b", "WEB-DL"),
+        (r"\\bWEBRip\\b|\\bweb rip\\b", "WEBRip"),
+        (r"\\bHDRip\\b", "HDRip"),
+    ):
+        if re.search(pattern, raw_text, re.IGNORECASE) and not re.search(r"\\b" + re.escape(tag) + r"\\b", stem, re.IGNORECASE):
+            source_tags.append(tag)
 
     # Canonical filename layout:
     # Movie (Year) Language/Dub Quality Source VideoCodec AudioCodec Channels Bitrate Subtitles.ext
@@ -1129,6 +1141,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     if prefix:
         ordered.append(prefix)
     ordered.extend(languages)
+    ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
     if audio_codec:
