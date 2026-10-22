@@ -965,9 +965,6 @@ def build_mediainfo_filename(raw_text: str):
                 if tag not in language_tags:
                     language_tags.append(tag)
                 break
-    if language_tags:
-        additions.extend(tag for tag in language_tags if not re.search(r"\b" + re.escape(tag) + r"\b", lower_stem, re.IGNORECASE))
-
     if audio_text:
         audio_codec_match = re.search(r"\b(AAC|AC-3|E-AC-3|DDP|DTS-HD|DTS|FLAC|Opus|MP3)\b", audio_text, re.IGNORECASE)
         if audio_codec_match:
@@ -986,6 +983,9 @@ def build_mediainfo_filename(raw_text: str):
             additions.append("5.1")
         elif re.search(r"\b7\.1\b|8 channels", audio_text, re.IGNORECASE) and not re.search(r"\b7\.1\b", lower_stem):
             additions.append("7.1")
+
+    if language_tags:
+        additions.extend(tag for tag in language_tags if not re.search(r"\b" + re.escape(tag) + r"\b", lower_stem, re.IGNORECASE))
 
     subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
     subtitle_text = subtitle_section.group(1) if subtitle_section else ""
