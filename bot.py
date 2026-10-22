@@ -908,10 +908,17 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     if not filename:
         return None
 
-    # Keep the original name/source tags and extension; only append missing technical tags.
+    # Read BOTH the uploaded filename and the caption's MediaInfo header.
+    # The caption header often contains the complete release name/source tags.
     stem, ext = os.path.splitext(filename)
+    caption_filename = extract_mediainfo_filename(raw_text)
+    if base_filename and caption_filename:
+        caption_stem, caption_ext = os.path.splitext(clean_media_filename(caption_filename))
+        if caption_stem:
+            # Prefer the caption's richer release name, but keep the uploaded file extension.
+            stem = caption_stem
     if not ext:
-        ext = ".mkv"
+        ext = os.path.splitext(caption_filename or "")[1] or ".mkv"
 
     additions = []
     lower_text = raw_text.lower()
@@ -1033,6 +1040,9 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     qm = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", work, re.IGNORECASE)
     if qm:
         quality = qm.group(1) + "p"
+    else:
+        # Resolution may exist only in the caption/MediaInfo report, not in the file name.
+        quality = next((x for x in additions if re.fullmatch(r"(?:360|480|540|720|1080|1440|2160)p", x, re.IGNORECASE)), None)
 
     # Prefer detected language tracks; otherwise retain language tags already in the filename.
     languages = []
