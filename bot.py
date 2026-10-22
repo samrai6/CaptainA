@@ -881,6 +881,30 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(HELP_TEXT, parse_mode=None)
 
 
+async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Automatically return the original media filename in the requested -n format."""
+    message = update.effective_message
+    if not message:
+        return
+
+    media = message.document or message.video or message.audio or message.animation
+    if not media:
+        return
+
+    filename = getattr(media, "file_name", None)
+    if not filename:
+        await message.reply_text("❌ ಈ fileಗೆ filename ಸಿಗಲಿಲ್ಲ.", parse_mode=None)
+        return
+
+    # Preserve the exact filename and bold the full output in Telegram.
+    output = f"-n {filename}"
+    await message.reply_text(
+        f"<b>{html.escape(output)}</b>",
+        parse_mode=ParseMode.HTML,
+        quote=True,
+    )
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message, user = update.effective_message, update.effective_user
     if not message or not message.photo or not user:
@@ -1752,6 +1776,7 @@ def main():
     app.add_handler(CommandHandler("setwatermark", setwatermark_command))
     app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
