@@ -1066,14 +1066,15 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     if not filename:
         filename = "media_file"
 
-    # Remove channel tags from both ends, but preserve the actual file extension.
-    filename = re.sub(r"^\\s*@[\\w]+\\s*~\\s*", "", filename, count=1)
+    # Remove uploader/channel tags from the filename while preserving the extension.
+    filename = re.sub(r"^\s*@[\w]+\s*~\s*", "", filename, count=1)
     filename = re.sub(
-        r"\\s*~\\s*@[\\w]+(?=\\.[^.]+$|$)",
+        r"\s*~\s*@[\w]+(?=\.[^.]+$|$)",
         "",
         filename,
         count=1,
-    ).strip()
+    )
+    filename = re.sub(r"\s+@[\w]+\s*$", "", filename).strip()
 
     output = f"-n  {filename}"
     try:
