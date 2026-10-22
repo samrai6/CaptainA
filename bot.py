@@ -1433,7 +1433,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ai_mode_enabled:
         await progress_message.edit_text(
             "🤖 Free AI poster editing start agide...\n"
-            "⏳ AI busy iddare swalpa time tagolabahudu. Please wait.",
+            "⚙️ Working... Please wait.",
             parse_mode=None,
         )
     else:
