@@ -866,6 +866,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
         [InlineKeyboardButton("🖼️ Watermark Settings", callback_data="settings:watermark")],
+        [InlineKeyboardButton("🔗 ShortXLinks API Settings", callback_data="settings:shortxlinks")],
     ])
     dump_id = settings.get("dump_channel_id") or "Not set"
     await update.message.reply_text(
@@ -1017,22 +1018,6 @@ def create_shortxlinks_url(long_url: str, api_token: str) -> str:
     if not result.startswith(("http://", "https://")):
         raise ValueError("ShortXLinks API did not return a valid short URL.")
     return result
-
-
-async def setshortlinktoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    user = update.effective_user
-    if not message or not user:
-        return
-    if message.chat.type != "private":
-        await message.reply_text("🔐 API token ಅನ್ನು bot ಜೊತೆ private chatನಲ್ಲಿ ಮಾತ್ರ set ಮಾಡು.", parse_mode=None)
-        return
-    context.user_data["awaiting_shortxlinks_token"] = True
-    await message.reply_text(
-        "🔐 ShortXLinks API token ಅನ್ನು ಮುಂದಿನ messageನಲ್ಲಿ ಕಳುಹಿಸು. "
-        "ಇದು ನಿನ್ನ accountಗೆ save ಆಗುತ್ತದೆ. Cancel ಮಾಡಲು /cancel ಬಳಸು.",
-        parse_mode=None,
-    )
 
 
 async def removeshortlinktoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1318,6 +1303,38 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         watermark_note = ("White watermark: " + watermark_settings["watermark_text"]) if watermark_settings.get("watermark_enabled", 1) else "Watermark OFF — poster ಮೇಲೆ watermark ಹಾಕಿಲ್ಲ."
         await query.edit_message_text("✅ Poster ಆಯ್ಕೆ ಆಯಿತು. " + watermark_note)
         await context.bot.send_message(chat_id=user.id, text="📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
+        return
+    if data == "settings:shortxlinks":
+        token = get_shortxlinks_token(user.id)
+        status = "✅ Token saved" if token else "❌ Token not set"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔑 Set / Change API Token", callback_data="sx:set")],
+            [InlineKeyboardButton("🗑 Remove Saved Token", callback_data="sx:remove")],
+            [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
+        ])
+        await query.edit_message_text(
+            "🔗 ShortXLinks API Settings\\n\\n"
+            f"Status: {status}\\n\\n"
+            "Token bot databaseನಲ್ಲಿ save ಆಗುತ್ತದೆ. Render Environment Variable ಅಗತ್ಯವಿಲ್ಲ.",
+            reply_markup=keyboard,
+            parse_mode=None,
+        )
+        return
+    if data == "sx:set":
+        context.user_data["awaiting_shortxlinks_token"] = True
+        await query.edit_message_text(
+            "🔐 ShortXLinks API token ಅನ್ನು ಈಗ ಮುಂದಿನ messageನಲ್ಲಿ ಕಳುಹಿಸು.\\n"
+            "Token private chatನಲ್ಲಿ ಮಾತ್ರ ಕಳುಹಿಸು. ರದ್ದು ಮಾಡಲು /cancel ಬಳಸು.",
+            parse_mode=None,
+        )
+        return
+    if data == "sx:remove":
+        delete_shortxlinks_token(user.id)
+        await query.edit_message_text(
+            "✅ Saved API token ತೆಗೆದುಹಾಕಲಾಗಿದೆ.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="settings:shortxlinks")]]),
+            parse_mode=None,
+        )
         return
     if data == "settings:watermark":
         s = get_poster_settings(user.id)
@@ -1720,7 +1737,7 @@ def main():
     app.add_handler(CommandHandler("setbuttonfooter", setbuttonfooter))
     app.add_handler(CommandHandler("buttonfooter", showbuttonfooter))
     app.add_handler(CommandHandler("resetbuttonfooter", resetbuttonfooter))
-    app.add_handler(CommandHandler("setshortlinktoken", setshortlinktoken_command))
+
     app.add_handler(CommandHandler("removeshortlinktoken", removeshortlinktoken_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("shortlink", shortlink_command))
