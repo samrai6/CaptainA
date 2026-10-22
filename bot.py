@@ -882,7 +882,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Automatically return the original media filename in the requested -n format."""
+    """Automatically reply with the media filename in the requested -n format."""
     message = update.effective_message
     if not message:
         return
@@ -893,16 +893,17 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
 
     filename = getattr(media, "file_name", None)
     if not filename:
-        await message.reply_text("❌ ಈ fileಗೆ filename ಸಿಗಲಿಲ್ಲ.", parse_mode=None)
-        return
-
-    # Preserve the exact filename and bold the full output in Telegram.
+        filename = "media_file"
     output = f"-n {filename}"
-    await message.reply_text(
-        f"<b>{html.escape(output)}</b>",
-        parse_mode=ParseMode.HTML,
-        quote=True,
-    )
+    try:
+        await message.reply_text(
+            f"<b>{html.escape(output)}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        logging.exception("Could not reply with media filename")
+        # Retry without HTML formatting so a malformed filename cannot block the reply.
+        await message.reply_text(output, parse_mode=None)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
