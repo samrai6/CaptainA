@@ -1061,7 +1061,7 @@ async def shortlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _send_shortlink(message, long_url, api_token)
         return
     context.user_data["awaiting_shortlink_url"] = True
-    await message.reply_text("🔗 Shorten ಮಾಡಬೇಕಾದ long URL ಅನ್ನು ಈಗ ಕಳುಹಿಸು.", parse_mode=None)
+    await message.reply_text("🔗 Shorten ಮಾಡಬೇಕಾದ URL ಅನ್ನು ಕಳುಹಿಸಿ", parse_mode=None)
 
 
 async def _send_shortlink(message, long_url: str, api_token: str):
