@@ -1066,15 +1066,13 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     if not filename:
         filename = "media_file"
 
-    # Remove uploader/channel tags from the filename while preserving the extension.
-    filename = re.sub(r"^\s*@[\w]+\s*~\s*", "", filename, count=1)
-    filename = re.sub(
-        r"\s*~\s*@[\w]+(?=\.[^.]+$|$)",
-        "",
-        filename,
-        count=1,
-    )
-    filename = re.sub(r"\s+@[\w]+\s*$", "", filename).strip()
+    # Remove uploader/user tags such as "@name ~", "@name -", "~ @name", or "- @name".
+    # Also remove a trailing uploader tag, while preserving the real filename and extension.
+    filename = re.sub(r"^\s*@[\w]+(?:\s*[~\-–—]\s*)+", "", filename, count=1)
+    filename = re.sub(r"(?:\s*[~\-–—]\s*)+@[\w]+(?=\.[^.]+$|$)", "", filename, count=1)
+    filename = re.sub(r"\s+@[A-Za-z0-9_]+\s*$", "", filename).strip()
+    # Clean up any leftover separator at the beginning without stripping hyphens inside the title.
+    filename = re.sub(r"^\s*[~–—]\s*", "", filename).strip()
 
     output = f"-n  {filename}"
     try:
