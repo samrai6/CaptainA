@@ -1406,10 +1406,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = None
     # Normalize literal newline markers and remove accidental empty parentheses before posting.
     output = output.replace("\\n", "\n").replace("()", "")
-    # AI OFF: search IMDb only and keep its poster original (no OCR cleanup or watermark).
-    # AI ON: search Google Images and IMDb concurrently for poster options.
+    # Show visible progress so the user knows what the bot is doing.
     watermark_settings = get_poster_settings(user.id)
-    if watermark_settings.get("ai_edit_enabled", 0):
+    ai_mode_enabled = bool(watermark_settings.get("ai_edit_enabled", 0))
+    progress_message = await message.reply_text(
+        "🔎 Movie poster search aguttide...\nPlease wait.",
+        parse_mode=None,
+    )
+    # AI OFF: search IMDb only and keep its poster original (no AI editing).
+    # AI ON: search Google Images and IMDb concurrently for poster options.
+    if ai_mode_enabled:
         google_task = asyncio.to_thread(search_google_image_posters, imdb_title)
         imdb_task = asyncio.to_thread(find_imdb_poster, imdb_title)
         google_result, imdb_result = await asyncio.gather(google_task, imdb_task, return_exceptions=True)
@@ -1424,6 +1430,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         imdb_result = await asyncio.to_thread(find_imdb_poster, imdb_title)
         posters = [{"url": imdb_result, "label": "IMDb poster", "year": ""}] if isinstance(imdb_result, str) and imdb_result else []
+    if ai_mode_enabled:
+        await progress_message.edit_text(
+            "🤖 Free AI poster editing start agide...\n"
+            "⏳ AI busy iddare swalpa time tagolabahudu. Please wait.",
+            parse_mode=None,
+        )
+    else:
+        await progress_message.edit_text(
+            "🖼️ Original poster ready maduttide...\nWatermark setting prakara apply agutte.",
+            parse_mode=None,
+        )
     if posters:
         context.user_data.pop("pending_manual_photo", None)
         context.user_data.pop("pending_manual_multi_photo", None)
@@ -1451,9 +1468,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"),
                 InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no"),
             ]])
-            await message.reply_text(
-                "✅ Poster ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಆಯ್ಕೆ ಮಾಡಿ edit ಮಾಡಿದ್ದೇನೆ.\n"
-                "📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?",
+            await progress_message.edit_text(
+                "✅ Poster processing complete!\n"
+                + ("🤖 AI edit try madalagide." if ai_mode_enabled else "🖼️ Original poster use madalagide.")
+                + "\n📤 Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?",
                 reply_markup=confirm_keyboard,
                 parse_mode=None,
             )
