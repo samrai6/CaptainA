@@ -2057,7 +2057,7 @@ def main():
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=False)
 
