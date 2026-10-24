@@ -949,7 +949,8 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     # but intentionally omit bitrates from the generated release filename.
     audio_tags = []
     audio_patterns = (
-        (r"\b(?:DD\s*\+|DDP|E[- ]?AC[- ]?3|EAC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "DDP"),
+        (r"\b(?:DD\s*\+|DDP)\s*[- ]*(7\.1|5\.1|2\.0)\b", "DDP"),
+        (r"\b(?:E[- ]?AC[- ]?3|EAC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "EAC3"),
         (r"\b(?:AC[- ]?3|AC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "AC3"),
         (r"\bAAC\s*[- ]*(7\.1|5\.1|2\.0)\b", "AAC"),
         (r"\bDTS[- ]HD\b", "DTS-HD"),
@@ -963,8 +964,12 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         match = re.search(pattern, combined, re.IGNORECASE)
         if match:
             channel_match = re.search(r"(7\.1|5\.1|2\.0)", match.group(0))
-            label = f"{tag}{channel_match.group(1)}" if channel_match else tag
-            if label.lower() not in [item.lower() for item in audio_tags]:
+            if channel_match:
+                label = f"{tag}{channel_match.group(1)}" if tag == "DDP" else f"{tag} {channel_match.group(1)}"
+            else:
+                label = tag
+            # Avoid adding a bare codec after its codec/channel pair was already found.
+            if not any(item.lower() == label.lower() or item.lower().startswith(tag.lower()) for item in audio_tags):
                 audio_tags.append(label)
 
     # Fallback for MediaInfo summaries that list codecs and channel layouts separately.
@@ -997,7 +1002,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
-        r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DTS-HD|DTS|FLAC|Opus|MP3)\b",
+        r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
 
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
