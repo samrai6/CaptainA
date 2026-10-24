@@ -840,6 +840,8 @@ def clean_media_filename(filename: str):
     """Remove uploader usernames joined to filenames by dash/tilde separators."""
     if not filename:
         return filename
+    # Remove a leading channel/uploader handle and optional popcorn emoji.
+    filename = re.sub(r"^\s*@[\w]+(?:\s*🍿)?\s+", "", filename, count=1)
     filename = re.sub(r"^\s*@[\w]+(?:\s*[~\-–—]\s*)+", "", filename, count=1)
     filename = re.sub(r"(?:\s*[~\-–—]\s*)+@[\w]+(?=\.[^.]+$|$)", "", filename, count=1)
     filename = re.sub(r"\s+@[\w]+\s*$", "", filename).strip()
@@ -928,6 +930,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         video_codec = "x264"
 
     source_patterns = [
+        (r"\bYT[- ]?DLP\b", "YT-DLP"),
         (r"\bNF\b|\bNetflix\b", "NF"),
         (r"\bAMZN\b|\bAmazon\b|\bPrime Video\b", "AMZN"),
         (r"\bWEB[- ]?DL\b|\bweb download\b", "WEB-DL"),
@@ -947,44 +950,38 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         if re.search(pattern, combined, re.IGNORECASE) and tag.lower() not in [x.lower() for x in source_tags]:
             source_tags.append(tag)
 
-    # Preserve every audio codec/channel pair found in the filename or MediaInfo,
-    # but intentionally omit bitrates from the generated release filename.
+    # Use only the primary audio codec; don't list every codec mentioned in a
+    # MediaInfo summary. Prefer the Audio Tracks section over title/prose text.
     audio_tags = []
-    audio_patterns = (
-        (r"\b(?:DD\s*\+|DDP)\s*[- ]*(7\.1|5\.1|2\.0)\b", "DDP"),
-        (r"\b(?:E[- ]?AC[- ]?3|EAC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "EAC3"),
-        (r"\b(?:AC[- ]?3|AC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "AC3"),
-        (r"\bAAC\s*[- ]*(7\.1|5\.1|2\.0)\b", "AAC"),
+    audio_source = audio_text if audio_section else combined
+    audio_codec_patterns = [
         (r"\bDTS[- ]HD\b", "DTS-HD"),
-        (r"\bE[- ]AC[- ]3\b|\bEAC3\b", "EAC3"),
-        (r"\bAC[- ]3\b|\bAC3\b", "AC3"),
-        (r"\bDDP\b|\bDD\s*\+", "DDP"),
-        (r"\bAAC\b", "AAC"), (r"\bDTS\b", "DTS"), (r"\bFLAC\b", "FLAC"),
-        (r"\bOpus\b", "Opus"), (r"\bMP3\b", "MP3"),
-    )
-    for pattern, tag in audio_patterns:
-        match = re.search(pattern, combined, re.IGNORECASE)
+        (r"\b(?:E[- ]?AC[- ]?3|EAC3)\b", "EAC3"),
+        (r"\b(?:DD\s*\+|DDP)\b", "DDP"),
+        (r"\b(?:AC[- ]?3|AC3)\b", "AC3"),
+        (r"\bAAC\b", "AAC"),
+        (r"\bDTS\b", "DTS"),
+        (r"\bFLAC\b", "FLAC"),
+        (r"\bOpus\b", "Opus"),
+        (r"\bMP3\b", "MP3"),
+    ]
+    found_audio = []
+    for pattern, tag in audio_codec_patterns:
+        match = re.search(pattern, audio_source, re.IGNORECASE)
         if match:
-            channel_match = re.search(r"(7\.1|5\.1|2\.0)", match.group(0))
-            if channel_match:
-                label = f"{tag}{channel_match.group(1)}" if tag == "DDP" else f"{tag} {channel_match.group(1)}"
-            else:
-                label = tag
-            # Avoid adding a bare codec after its codec/channel pair was already found.
-            if not any(item.lower() == label.lower() or item.lower().startswith(tag.lower()) for item in audio_tags):
-                audio_tags.append(label)
-
-    # Fallback for MediaInfo summaries that list codecs and channel layouts separately.
-    if not audio_tags:
-        fallback_codec = next((tag for pattern, tag in (
-            (r"\bDTS[- ]HD\b", "DTS-HD"), (r"\bE[- ]AC[- ]3\b|\bEAC3\b", "EAC3"),
-            (r"\bAC[- ]3\b|\bAC3\b", "AC3"), (r"\bDDP\b|\bDD\s*\+", "DDP"),
-            (r"\bAAC\b", "AAC"), (r"\bDTS\b", "DTS"), (r"\bFLAC\b", "FLAC"),
-            (r"\bOpus\b", "Opus"), (r"\bMP3\b", "MP3"),
-        ) if re.search(pattern, combined, re.IGNORECASE)), None)
-        if fallback_codec:
-            channel = next((x for x in ("7.1", "5.1", "2.0") if re.search(r"\b" + re.escape(x) + r"\b", combined, re.IGNORECASE)), None)
-            audio_tags.append(f"{fallback_codec}{channel}" if channel else fallback_codec)
+            found_audio.append((match.start(), match, tag))
+    if found_audio:
+        _, codec_match, codec_tag = min(found_audio, key=lambda item: item[0])
+        # Look for a channel layout near the primary codec in the same audio section.
+        nearby = audio_source[codec_match.start():codec_match.start() + 180]
+        channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", nearby)
+        if not channel_match:
+            channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", audio_source)
+        channel = channel_match.group(1) if channel_match else None
+        if channel:
+            audio_tags.append(f"{codec_tag}{channel}" if codec_tag == "DDP" else f"{codec_tag} {channel}")
+        else:
+            audio_tags.append(codec_tag)
 
     subtitle_tags = []
     subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
@@ -1012,7 +1009,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
         r"\bEng\s*Sub\b|\bEnglish subtitles?\b",
-        r"\b(?:NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
+        r"\b(?:YT[- ]?DLP|NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
     ]
     for pattern in remove_patterns:
         title = re.sub(pattern, " ", title, flags=re.IGNORECASE)
