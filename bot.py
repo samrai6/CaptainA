@@ -1011,6 +1011,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
 
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
+        r"\bEng\s*Sub\b|\bEnglish subtitles?\b",
         r"\b(?:NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
     ]
     for pattern in remove_patterns:
@@ -1038,6 +1039,8 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         ordered.append(dub)
     if quality:
         ordered.append(quality)
+    if hevc:
+        ordered.append(hevc)
     ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
