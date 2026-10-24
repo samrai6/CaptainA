@@ -1029,19 +1029,17 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         title = re.sub(r"\s+", " ", title).strip(" ._-()")
         title = f"{title} ({year_match.group(1)})".strip()
 
-    # Canonical order: Movie Name (Year), Language, HQ, Source, Resolution,
-    # Video Codec, Audio Codec/Channels, Subtitles.
+    # Canonical order: Movie Name (Year), Language, Resolution, Source,
+    # Video Codec, Audio Codec/Channels, Subtitles. Do not include HQ.
     ordered = []
     if title:
         ordered.append(title)
     ordered.extend(display_languages)
-    if hq_tag:
-        ordered.append(hq_tag)
     if dub:
         ordered.append(dub)
-    ordered.extend(source_tags)
     if quality:
         ordered.append(quality)
+    ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
     ordered.extend(audio_tags)
