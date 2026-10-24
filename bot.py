@@ -903,6 +903,8 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     # Dub marker is kept only when it is explicitly present or inferable from a language-labelled filename.
     dub = "Dub" if re.search(r"\b(?:dub|dubbed)\b", work, re.IGNORECASE) else None
 
+    # Keep HQ as a separate release tag after the title/year.
+    hq_tag = "HQ" if re.search(r"\bHQ\b", work, re.IGNORECASE) else None
     quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", work, re.IGNORECASE)
     if not quality_match:
         quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", raw_text, re.IGNORECASE)
@@ -988,11 +990,13 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
     subtitle_text = subtitle_section.group(1) if subtitle_section else raw_text
     for language, tag in languages:
+        # English subtitles always use the canonical label ESub, never EngSub.
+        subtitle_tag = "ESub" if language == "English" else tag + "Sub"
         if re.search(r"\b" + re.escape(tag) + r"Sub\b", work, re.IGNORECASE):
-            subtitle_tags.append(tag + "Sub")
-        elif re.search(r"\b" + re.escape(language) + r"\b", subtitle_text, re.IGNORECASE) and re.search(r"\b(?:subtitle|subtitles|esub|external sub)\b", subtitle_text, re.IGNORECASE):
-            subtitle_tags.append(tag + "Sub")
-    if re.search(r"\bESub\b|\bEnglish subtitles?\b|\bEng Sub\b", combined, re.IGNORECASE):
+            subtitle_tags.append(subtitle_tag)
+        elif re.search(r"\b" + re.escape(language) + r"\b", subtitle_text, re.IGNORECASE) and re.search(r"\b(?:subtitle|subtitles|esub|eng\s*sub|external sub)\b", subtitle_text, re.IGNORECASE):
+            subtitle_tags.append(subtitle_tag)
+    if re.search(r"\bESub\b|\bEng\s*Sub\b|\bEngSub\b|\bEnglish subtitles?\b", combined, re.IGNORECASE):
         subtitle_tags.append("ESub")
     subtitle_tags = list(dict.fromkeys(subtitle_tags))
 
@@ -1000,6 +1004,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     title = work
     remove_patterns = [
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
+        r"\bHQ\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
@@ -1026,13 +1031,13 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     ordered = []
     if title:
         ordered.append(title)
+    if hq_tag:
+        ordered.append(hq_tag)
     ordered.extend(display_languages)
     if dub:
         ordered.append(dub)
     if quality:
         ordered.append(quality)
-    if hevc:
-        ordered.append(hevc)
     ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
