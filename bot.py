@@ -840,11 +840,14 @@ def clean_media_filename(filename: str):
     """Remove uploader usernames joined to filenames by dash/tilde separators."""
     if not filename:
         return filename
-    # Remove a leading channel/uploader handle and optional popcorn emoji.
+    # Remove channel/uploader handles and popcorn emoji from either end.
     filename = re.sub(r"^\s*@[\w]+(?:\s*🍿)?\s+", "", filename, count=1)
     filename = re.sub(r"^\s*@[\w]+(?:\s*[~\-–—]\s*)+", "", filename, count=1)
     filename = re.sub(r"(?:\s*[~\-–—]\s*)+@[\w]+(?=\.[^.]+$|$)", "", filename, count=1)
     filename = re.sub(r"\s+@[\w]+\s*$", "", filename).strip()
+    # Also handle suffixes such as "Movie.mkv @Channel 🍿" or "Movie.mkv 🍿 @Channel".
+    for _ in range(3):
+        filename = re.sub(r"\s*(?:@[\w]+|🍿)\s*$", "", filename).strip()
     filename = re.sub(r"^\s*[~–—]\s*", "", filename).strip()
     return filename
 
