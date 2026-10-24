@@ -945,20 +945,39 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         if re.search(pattern, combined, re.IGNORECASE) and tag.lower() not in [x.lower() for x in source_tags]:
             source_tags.append(tag)
 
-    audio_codec = None
-    for pattern, tag in (
-        (r"\bDTS[- ]HD\b", "DTS-HD"), (r"\bE[- ]AC[- ]3\b|\bEAC3\b", "EAC3"),
-        (r"\bAC[- ]3\b|\bAC3\b", "AC3"), (r"\bDDP\b", "DDP"),
+    # Preserve every audio codec/channel pair found in the filename or MediaInfo,
+    # but intentionally omit bitrates from the generated release filename.
+    audio_tags = []
+    audio_patterns = (
+        (r"\b(?:DD\s*\+|DDP|E[- ]?AC[- ]?3|EAC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "DDP"),
+        (r"\b(?:AC[- ]?3|AC3)\s*[- ]*(7\.1|5\.1|2\.0)\b", "AC3"),
+        (r"\bAAC\s*[- ]*(7\.1|5\.1|2\.0)\b", "AAC"),
+        (r"\bDTS[- ]HD\b", "DTS-HD"),
+        (r"\bE[- ]AC[- ]3\b|\bEAC3\b", "EAC3"),
+        (r"\bAC[- ]3\b|\bAC3\b", "AC3"),
+        (r"\bDDP\b|\bDD\s*\+", "DDP"),
         (r"\bAAC\b", "AAC"), (r"\bDTS\b", "DTS"), (r"\bFLAC\b", "FLAC"),
         (r"\bOpus\b", "Opus"), (r"\bMP3\b", "MP3"),
-    ):
-        if re.search(pattern, combined, re.IGNORECASE):
-            audio_codec = tag
-            break
-    channels = next((x for x in ("7.1", "5.1", "2.0") if re.search(r"\b" + re.escape(x) + r"\b", combined, re.IGNORECASE)), None)
+    )
+    for pattern, tag in audio_patterns:
+        match = re.search(pattern, combined, re.IGNORECASE)
+        if match:
+            channel_match = re.search(r"(7\.1|5\.1|2\.0)", match.group(0))
+            label = f"{tag}{channel_match.group(1)}" if channel_match else tag
+            if label.lower() not in [item.lower() for item in audio_tags]:
+                audio_tags.append(label)
 
-    bitrate_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:kbps|kbit/s|kbit)", combined, re.IGNORECASE)
-    bitrate = bitrate_match.group(1) + "kbps" if bitrate_match else None
+    # Fallback for MediaInfo summaries that list codecs and channel layouts separately.
+    if not audio_tags:
+        fallback_codec = next((tag for pattern, tag in (
+            (r"\bDTS[- ]HD\b", "DTS-HD"), (r"\bE[- ]AC[- ]3\b|\bEAC3\b", "EAC3"),
+            (r"\bAC[- ]3\b|\bAC3\b", "AC3"), (r"\bDDP\b|\bDD\s*\+", "DDP"),
+            (r"\bAAC\b", "AAC"), (r"\bDTS\b", "DTS"), (r"\bFLAC\b", "FLAC"),
+            (r"\bOpus\b", "Opus"), (r"\bMP3\b", "MP3"),
+        ) if re.search(pattern, combined, re.IGNORECASE)), None)
+        if fallback_codec:
+            channel = next((x for x in ("7.1", "5.1", "2.0") if re.search(r"\b" + re.escape(x) + r"\b", combined, re.IGNORECASE)), None)
+            audio_tags.append(f"{fallback_codec}{channel}" if channel else fallback_codec)
 
     subtitle_tags = []
     subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
@@ -976,9 +995,10 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     title = work
     remove_patterns = [
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
+        r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DTS-HD|DTS|FLAC|Opus|MP3)\b",
-        r"\b\d+(?:\.\d+)?\s*(?:kbps|kbit/s|kbit)\b",
+
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
         r"\b(?:NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
@@ -1011,12 +1031,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
-    if audio_codec:
-        ordered.append(audio_codec)
-    if channels:
-        ordered.append(channels)
-    if bitrate:
-        ordered.append(bitrate)
+    ordered.extend(audio_tags)
     ordered.extend(subtitle_tags)
 
     # Deduplicate while preserving canonical order.
@@ -1111,7 +1126,7 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     if caption:
         caption_header = extract_mediainfo_filename(caption)
         is_mediainfo_header = bool(
-            re.match(r"^\\s*MediaInfo\\s+of\\s+", caption, re.IGNORECASE)
+            re.match(r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE)
         )
         # Use the complete filename from the caption's MediaInfo header when present.
         # Otherwise preserve the uploaded filename and enrich it from caption details.
