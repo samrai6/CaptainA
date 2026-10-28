@@ -679,7 +679,7 @@ def make_postlink_caption(title: str, links: list, final_line: str, footer: str)
     # Every separate title line is clickable; JOIN NOW is a separate inline button.
     invite_url = links[0]
     title_lines = [line.strip().replace("**", "") for line in title.splitlines() if line.strip()]
-    linked_title = "\\n".join(
+    linked_title = "\n".join(
         f'<b><a href="{html.escape(invite_url, quote=True)}">{html.escape(line)}</a></b>'
         for line in title_lines
     )
