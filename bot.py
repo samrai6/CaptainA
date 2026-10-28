@@ -656,17 +656,22 @@ def find_imdb_poster(movie_name: str):
 
 
 def parse_postlink_caption(text: str):
+    """Parse Postlink input with optional Markdown bold around titles and URLs."""
     text = (text or "").replace("\\n", "\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    first_url_line = next((i for i, line in enumerate(lines) if URL_RE.search(line)), None)
+    first_url_line = next(
+        (i for i, line in enumerate(lines) if URL_RE.search(line.replace("**", ""))),
+        None,
+    )
     if first_url_line is None or first_url_line == 0:
         return None, [], "Uploading Join Fast 👇👇"
     # Preserve separate title lines so each can be made independently clickable.
     title = "\n".join(line.replace("**", "").strip() for line in lines[:first_url_line])
     links = []
     for line in lines[first_url_line:]:
-        for match in URL_RE.finditer(line):
-            link = match.group(0).strip("*").rstrip(".,);]*_")
+        clean_line = line.replace("**", "")
+        for match in URL_RE.finditer(clean_line):
+            link = match.group(0).rstrip(".,);]_")
             if link and link not in links:
                 links.append(link)
     if not title or not links:
