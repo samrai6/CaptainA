@@ -1276,7 +1276,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.warning("Could not watermark user-uploaded photo; keeping original photo", exc_info=True)
     context.user_data["pending_dump_post"] = pending_photo
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
-    await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
+    confirm_text = (
+        "📤 Postlink Button Post ಅನ್ನು ಎಲ್ಲಿ ಕಳುಹಿಸಬೇಕು?\n\n✅ YES = ಈಗಾಗಲೇ set ಮಾಡಿದ Dump Channel systemಗೆ ಕಳುಹಿಸು\n❌ NO = PMಗೆ ಕಳುಹಿಸು"
+        if settings["post_mode"] == "postlink_button"
+        else "📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = Dump ಆಯ್ಕೆಮಾಡು\nNO = PMಗೆ ಕಳುಹಿಸು"
+    )
+    await message.reply_text(confirm_text, reply_markup=confirm_keyboard, parse_mode=None)
 
 
 SHORTXLINKS_API_URL = "https://shortxlinks.com/api"
