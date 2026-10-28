@@ -497,7 +497,7 @@ def get_post_mode(user_id: int) -> str:
 def render_markdown_bold(text: str) -> str:
     """Render **bold** markers as Telegram HTML while keeping all other text normal."""
     rendered = []
-    for part in re.split(r"(\\*\\*.*?\\*\\*)", str(text), flags=re.DOTALL):
+    for part in re.split(r"(\*\*.*?\*\*)", str(text), flags=re.DOTALL):
         if not part:
             continue
         is_bold = len(part) >= 4 and part.startswith("**") and part.endswith("**")
