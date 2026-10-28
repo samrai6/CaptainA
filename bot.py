@@ -1040,18 +1040,11 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     bitrate_match = re.search(r"\b(\d{2,5})\s*(?:kbps|kb/s|kbit/s|kbits/s)\b", bitrate_source, re.IGNORECASE)
     bitrate_tag = f"{bitrate_match.group(1)}kbps" if bitrate_match else None
 
+    # Add subtitle labels only when explicitly present in the filename or MediaInfo caption.
     subtitle_tags = []
-    subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
-    subtitle_text = subtitle_section.group(1) if subtitle_section else raw_text
-    for language, tag in languages:
-        # English subtitles always use the canonical label ESub, never EngSub.
-        subtitle_tag = "ESub" if language == "English" else tag + "Sub"
-        if re.search(r"\b" + re.escape(tag) + r"Sub\b", work, re.IGNORECASE):
-            subtitle_tags.append(subtitle_tag)
-        elif re.search(r"\b" + re.escape(language) + r"\b", subtitle_text, re.IGNORECASE) and re.search(r"\b(?:subtitle|subtitles|esub|eng\s*sub|external sub)\b", subtitle_text, re.IGNORECASE):
-            subtitle_tags.append(subtitle_tag)
-    if re.search(r"\bESub\b|\bEng\s*Sub\b|\bEngSub\b|\bEnglish subtitles?\b", combined, re.IGNORECASE):
+    if re.search(r"\b(?:ESub|Eng\s*Sub|EngSub|English subtitles?)\b", combined, re.IGNORECASE):
         subtitle_tags.append("ESub")
+    # Do not infer KanSub or other subtitle tags from language track details.
     subtitle_tags = list(dict.fromkeys(subtitle_tags))
 
     # Remove technical metadata from the title area, then put year/title first.
