@@ -38,7 +38,7 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-DEFAULT_FOOTER = "✦ 𝐉𝐎𝐈𝐍 : @SKR_updates"
+DEFAULT_FOOTER = "✦ **JOIN : @SKR_updates**"
 FOOTER_DB_PATH = os.getenv("FOOTER_DB_PATH", "footer.db")
 MONGO_URI = (
     os.getenv("MONGODB_URI")
@@ -494,16 +494,35 @@ def get_post_mode(user_id: int) -> str:
     return get_user_settings(user_id)["post_mode"]
 
 
-def render_footer(footer: str) -> str:
-    # Support real/literal newlines and hide Markdown bold markers in footer text.
-    footer = footer.replace("\\n", "\n").replace("**", "")
+def render_markdown_bold(text: str) -> str:
+    """Render **bold** markers as Telegram HTML while keeping all other text normal."""
     rendered = []
-    for line in footer.splitlines():
-        safe = html.escape(line)
-        if URL_RE.fullmatch(line.strip()):
-            safe = f'<a href="{html.escape(line.strip(), quote=True)}">{safe}</a>'
-        rendered.append(f"<b>{safe}</b>")
-    return "\n".join(rendered)
+    for part in re.split(r"(\\*\\*.*?\\*\\*)", str(text), flags=re.DOTALL):
+        if not part:
+            continue
+        is_bold = len(part) >= 4 and part.startswith("**") and part.endswith("**")
+        value = part[2:-2] if is_bold else part
+        safe = html.escape(value)
+        if URL_RE.fullmatch(value.strip()):
+            safe = f'<a href="{html.escape(value.strip(), quote=True)}">{safe}</a>'
+        rendered.append(f"<b>{safe}</b>" if is_bold else safe)
+    return "".join(rendered)
+
+
+def render_footer(footer: str) -> str:
+    """Render configured footer lines; only text wrapped in ** is bold."""
+    footer = (footer or "").replace("\\n", "\n")
+    # Migrate known legacy built-in footers to the current normal-font branding.
+    compact = footer.strip()
+    if compact in {
+        "✦ 𝐉𝐎𝐈𝐍 : @SKR_updates",
+        "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates\\n@SKR_updates",
+        "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates",
+    }:
+        footer = "✦ **JOIN : @SKR_updates**"
+    return "\n".join(render_markdown_bold(line) for line in footer.splitlines())
+
+
 def literal_bold(text: str) -> str:
     """Render content as bold HTML; hide Markdown ** markers and keep URLs clickable."""
     text = text.replace("**", "")
@@ -690,9 +709,9 @@ def parse_text_submission(text: str):
 
 
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = literal_bold("🎬 " + movie_name)
-    help_text = literal_bold("🔗 𝐇𝐎𝐖 𝐓𝐎 𝐎𝐏𝐄𝐍 𝐋𝐈𝐍𝐊 👇")
-    help_url = literal_bold("https://t.me/Hwotoopenlink")
+    title = render_markdown_bold("🎬 **" + movie_name + "**")
+    help_text = render_markdown_bold("🔗 **HOW TO OPEN LINK 👇**")
+    help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     footer_text = render_footer("\n".join(footer_lines))
@@ -709,9 +728,9 @@ def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
 
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = literal_bold("🎬 " + movie_name)
-    help_text = literal_bold("🔗 𝐇𝐎𝐖 𝐓𝐎 𝐎𝐏𝐄𝐍 𝐋𝐈𝐍𝐊 👇")
-    help_url = literal_bold("https://t.me/Hwotoopenlink")
+    title = render_markdown_bold("🎬 **" + movie_name + "**")
+    help_text = render_markdown_bold("🔗 **HOW TO OPEN LINK 👇**")
+    help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     footer_text = render_footer("\n".join(footer_lines))
