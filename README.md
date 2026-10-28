@@ -14,7 +14,7 @@ https://example.com/movie
 - First non-empty line: movie title.
 - Next lines: include the file URL.
 - The bot repeats the URL three times in the output.
-- Literal `**` characters remain visible because Telegram parse mode is disabled.
+- In Button Mode and Multi Button Mode, wrap text in `**` to make it bold; unmarked text uses the normal font. The bot converts these markers to Telegram HTML, so the asterisks do not appear in the posted caption.
 - The output photo is sent as a reply to the original message.
 
 ## Deploy on Koyeb (Dockerfile)
