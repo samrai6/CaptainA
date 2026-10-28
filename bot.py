@@ -548,18 +548,35 @@ def literal_bold(text: str) -> str:
 
 
 def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch_link: str = None) -> str:
-    """Build a clean Normal Mode caption; file links belong in buttons, not caption text."""
+    """Build Normal Mode caption in the user's requested format; bold all link text."""
     safe_movie_name = html.escape(movie_name)
-    safe_link = html.escape("https://t.me/+2FzlW3vBPmI4Y2Nl", quote=True)
-    title = f'<b><a href="{safe_link}">{safe_movie_name}</a></b>'
-    help_label = '<b><a href="https://t.me/Hwotoopenlink">HOW TO OPEN LINK 🔗👇👇</a></b>'
-    help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
-    divider = render_markdown_bold("**━━━━━━━━━━━━━━━━━━━━**")
+    invite_url = "https://t.me/+2FzlW3vBPmI4Y2Nl"
+    title = f'<b><a href="{invite_url}">{safe_movie_name}</a></b>'
+    divider = "<b>━━━━━━━━━━━━━━━━━━━━</b>"
+    footer_divider = "<b>══════════════════════</b>"
+
+    raw_link = (link or "").strip()
+    safe_link = html.escape(raw_link, quote=True)
+    link_text = html.escape(raw_link)
+    files_link = f'<b><a href="{safe_link}">{link_text}</a></b>'
+    files_label = "<b>𝗙𝗜𝗟𝗘𝗦 𝗟𝗶𝗻𝗸 👇🏻👇🏻👇🏻👇🏻</b>"
+    help_label = '<b><a href="https://t.me/Hwotoopenlink">𝗛𝗢𝗪 𝗧𝗢 𝗢𝗣𝗘𝗡 𝗟𝗶𝗡𝗞🔗👇👇</a></b>'
+    help_url = '<b><a href="https://t.me/Hwotoopenlink">https://t.me/Hwotoopenlink</a></b>'
+    skr_link = '<b><a href="https://t.me/SKR_updates">@SKR_updates</a></b>'
+
     return (
         f"{title}\n"
         f"{divider}\n\n"
-        f"{help_label} {help_url}\n"
-        f"{render_footer(footer)}"
+        f"{files_label}\n"
+        f"{files_link}\n"
+        f"{files_link}\n"
+        f"{files_link}\n\n"
+        f"{help_label}\n"
+        f"{help_url}\n"
+        f"{footer_divider}\n"
+        f"<b>🔰𝐉𝐨𝐢𝐧 :- 🌟🌟</b>\n"
+        f"{skr_link}\n"
+        f"{skr_link}"
     )
 
 def clean_imdb_movie_title(movie_name: str) -> str:
