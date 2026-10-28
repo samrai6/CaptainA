@@ -542,15 +542,15 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
     """Build the Normal Mode caption using normal font and **bold** markers."""
     title = render_markdown_bold("**" + movie_name + "**")
     # Normal Mode intentionally repeats the shortlink three times, matching the user's sample.
-    repeated_links = "\\n".join(render_markdown_bold("**" + link + "**") for _ in range(3))
+    repeated_links = "\n".join(render_markdown_bold("**" + link + "**") for _ in range(3))
     return (
-        f"{title}\\n"
-        f"{render_markdown_bold('**━━━━━━━━━━━━━━━━━━━━**')}\\n"
-        f"{render_markdown_bold('**FILES Link 👇🏻👇🏻👇🏻👇🏻**')}\\n"
-        f"{repeated_links}\\n\\n"
-        f"{render_markdown_bold('**HOW TO OPEN LINK 🔗👇👇**')}\\n"
-        f"{render_markdown_bold('**https://t.me/Hwotoopenlink**')}\\n"
-        f"{render_markdown_bold('**══════════════════════**')}\\n"
+        f"{title}\n"
+        f"{render_markdown_bold('**━━━━━━━━━━━━━━━━━━━━**')}\n"
+        f"{render_markdown_bold('**FILES Link 👇🏻👇🏻👇🏻👇🏻**')}\n"
+        f"{repeated_links}\n\n"
+        f"{render_markdown_bold('**HOW TO OPEN LINK 🔗👇👇**')}\n"
+        f"{render_markdown_bold('**https://t.me/Hwotoopenlink**')}\n"
+        f"{render_markdown_bold('**══════════════════════**')}\n"
         f"{render_footer(footer)}"
     )
 
