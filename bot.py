@@ -1636,6 +1636,24 @@ def watermark_positions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data="wm:pos:" + pos)] for label, pos in positions] + [[InlineKeyboardButton("⬅️ Back", callback_data="settings:watermark")]])
 
 
+async def build_dump_selection_rows(bot, channels: list, selected: list) -> list:
+    """Show each dump channel's Telegram title and ID in its selection button."""
+    rows = []
+    for i, channel_id in enumerate(channels):
+        try:
+            chat = await bot.get_chat(channel_id)
+            channel_name = getattr(chat, "title", None) or "Unknown Channel"
+        except Exception:
+            logging.warning("Could not resolve dump channel name for %s", channel_id, exc_info=True)
+            channel_name = "Name unavailable"
+        prefix = "☑️ " if i in selected else "☐ "
+        suffix = f" | {channel_id}"
+        max_name_length = max(1, 64 - len(prefix) - len(suffix))
+        label = f"{prefix}{channel_name[:max_name_length]}{suffix}"
+        rows.append([InlineKeyboardButton(label, callback_data=f"pickdump:{i}")])
+    return rows
+
+
 async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query, user = update.callback_query, update.effective_user
     if not query or not user:
@@ -1804,10 +1822,8 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 channel for i, channel in enumerate(channels) if i in selected
             ]
             if not destinations:
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(("☑️ " if i in selected else "☐ ") + f"Dump {i + 1}", callback_data=f"pickdump:{i}")]
-                    for i, _ in enumerate(channels)
-                ])
+                rows = await build_dump_selection_rows(context.bot, channels, selected)
+                keyboard = InlineKeyboardMarkup(rows)
                 keyboard.inline_keyboard.append([
                     InlineKeyboardButton("✅ Send Selected (0)", callback_data="pickdump:send")
                 ])
@@ -1846,10 +1862,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             return
         selected = context.user_data.get("selected_dump_indices", [])
-        rows = [
-            [InlineKeyboardButton(("☑️ " if i in selected else "☐ ") + f"Dump {i + 1}", callback_data=f"pickdump:{i}")]
-            for i, _ in enumerate(channels)
-        ]
+        rows = await build_dump_selection_rows(context.bot, channels, selected)
         rows.append([InlineKeyboardButton(f"✅ Send Selected ({len(selected)})", callback_data="pickdump:send")])
         rows.append([
             InlineKeyboardButton("📣 Send All", callback_data="pickdump:all"),
