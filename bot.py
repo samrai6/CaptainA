@@ -981,9 +981,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         video_codec = "x264"
 
     source_patterns = [
-        (r"\bYT[- ]?DLP\b", "YT-DLP"),
-        (r"\bNF\b|\bNetflix\b", "NF"),
-        (r"\bAMZN\b|\bAmazon\b|\bPrime Video\b", "AMZN"),
+        # Actual release source first, then streaming provider tags.
         (r"\bWEB[- ]?DL\b|\bweb download\b", "WEB-DL"),
         (r"\bWEBRip\b|\bweb rip\b", "WEBRip"),
         (r"\bHDRip\b", "HDRip"),
@@ -991,6 +989,9 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         (r"\bBRRip\b", "BRRip"),
         (r"\bHDTC\b", "HDTC"),
         (r"\bHDCAM\b", "HDCAM"),
+        (r"\bYT[- ]?DLP\b", "YT-DLP"),
+        (r"\bNF\b|\bNetflix\b", "NF"),
+        (r"\bAMZN\b|\bAmazon\b|\bPrime Video\b", "AMZN"),
         (r"\bDSNP\b", "DSNP"),
         (r"\bATVP\b", "ATVP"),
         (r"\bZEE5\b", "ZEE5"),
@@ -1034,6 +1035,11 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         else:
             audio_tags.append(codec_tag)
 
+    # Normalize audio bitrate and place it after audio codec/channels.
+    bitrate_source = audio_source if audio_section else combined
+    bitrate_match = re.search(r"\b(\d{2,5})\s*(?:kbps|kb/s|kbit/s|kbits/s)\b", bitrate_source, re.IGNORECASE)
+    bitrate_tag = f"{bitrate_match.group(1)}kbps" if bitrate_match else None
+
     subtitle_tags = []
     subtitle_section = re.search(r"Subtitle Tracks([\s\S]*?)(?:Technical|$)", raw_text, re.IGNORECASE)
     subtitle_text = subtitle_section.group(1) if subtitle_section else raw_text
@@ -1054,6 +1060,7 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
         r"\bHQ\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
+        r"\b\d{2,5}\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
 
@@ -1091,6 +1098,8 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     if video_codec:
         ordered.append(video_codec)
     ordered.extend(audio_tags)
+    if bitrate_tag:
+        ordered.append(bitrate_tag)
     ordered.extend(subtitle_tags)
 
     # Deduplicate while preserving canonical order.
