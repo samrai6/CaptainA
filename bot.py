@@ -485,7 +485,7 @@ def save_setting(user_id: int, key: str, value: str):
 
 
 def save_post_mode(user_id: int, mode: str):
-    if mode not in {"normal", "buttons", "multi", "postlink"}:
+    if mode not in {"normal", "buttons", "multi", "postlink", "postlink_normal", "postlink_button"}:
         raise ValueError("Unsupported post mode")
     save_setting(user_id, "post_mode", mode)
 
@@ -868,7 +868,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user:
         return
     settings = get_user_settings(update.effective_user.id)
-    mode_label = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink": "Postlink Mode"}.get(settings["post_mode"], "Normal Mode")
+    mode_label = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink": "Postlink Mode", "postlink_normal": "Postlink Mode — Normal Post", "postlink_button": "Postlink Mode — Button Post"}.get(settings["post_mode"], "Normal Mode")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
         [InlineKeyboardButton("🎬 Multi Button Mode", callback_data="mode:multi")],
@@ -1227,15 +1227,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.photo or not user:
         return
     settings = get_user_settings(user.id)
-    if settings["post_mode"] == "postlink":
+    if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
         movie_name, postlink_links, final_line = parse_postlink_caption(message.caption or "")
         if not movie_name or not postlink_links:
             await message.reply_text("❌ Postlink Mode: photo ಜೊತೆಗೆ captionನಲ್ಲಿ Movie title ಮತ್ತು Telegram invite link ಕಳುಹಿಸು.", parse_mode=None)
             return
-        caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]
-        ])
+        if settings["post_mode"] == "postlink_button":
+            caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]])
+        else:
+            footer_text = render_footer(get_footer(user.id))
+            caption = literal_bold(movie_name) + "\n\n" + "\n".join(literal_bold(link) for link in postlink_links) + "\n\n" + footer_text
+            keyboard = None
     else:
         # If this photo was requested after a text post's poster search failed,
         # reuse that post's saved title and links; the user only needs to send a photo.
@@ -1247,7 +1250,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not movie_name or not download_link:
                 await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
                 return
-    if settings["post_mode"] == "postlink":
+    if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
         pass
     elif settings["post_mode"] == "multi":
         # Prefer the saved text-post data when this is the requested fallback photo.
@@ -1483,7 +1486,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     download_link = links[0]
     watch_link = links[1] if len(links) > 1 else links[0]
     settings = get_user_settings(user.id)
-    if settings["post_mode"] == "multi":
+    if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
+        postlink_links = (links + [links[-1]] * 3)[:3]
+        if settings["post_mode"] == "postlink_button":
+            output = make_postlink_caption(movie_name, postlink_links, "Uploading Join Fast 👇👇", get_footer(user.id))
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]])
+        else:
+            output = literal_bold(movie_name) + "\n\n" + "\n".join(literal_bold(link) for link in postlink_links) + "\n\n" + render_footer(get_footer(user.id))
+            keyboard = None
+    elif settings["post_mode"] == "multi":
         quality_links = links[:4]
         output = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
         keyboard = make_multi_buttons(quality_links, settings)
@@ -1779,7 +1790,14 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = data.split(":", 1)[1]
         if mode in {"normal", "buttons", "multi", "postlink"}:
             save_post_mode(user.id, mode)
-            mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink": "Postlink Mode"}[mode]
+            if mode == "postlink":
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📝 Normal Post", callback_data="mode:postlink_normal")],
+                    [InlineKeyboardButton("🔘 Button Post", callback_data="mode:postlink_button")],
+                ])
+                await query.edit_message_text("🔗 Postlink Mode — choose post type:", reply_markup=keyboard)
+                return
+            mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink_normal": "Postlink Mode — Normal Post", "postlink_button": "Postlink Mode — Button Post"}[mode]
             await query.edit_message_text("✅ Mode changed to " + mode_name + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
     if data == "settings:dump":
