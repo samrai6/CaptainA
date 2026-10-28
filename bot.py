@@ -38,7 +38,7 @@ HELP_TEXT = (
 )
 
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-DEFAULT_FOOTER = "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\n@SKR_updates\n@SKR_updates"
+DEFAULT_FOOTER = "✦ 𝐉𝐎𝐈𝐍 : @SKR_updates"
 FOOTER_DB_PATH = os.getenv("FOOTER_DB_PATH", "footer.db")
 MONGO_URI = (
     os.getenv("MONGODB_URI")
