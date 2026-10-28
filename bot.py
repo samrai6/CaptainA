@@ -514,11 +514,17 @@ def render_footer(footer: str) -> str:
     footer = (footer or "").replace("\\n", "\n")
     # Migrate known legacy built-in footers to the current normal-font branding.
     compact = footer.strip()
-    if compact in {
-        "✦ 𝐉𝐎𝐈𝐍 : @SKR_updates",
-        "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates\\n@SKR_updates",
-        "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟\\n@SKR_updates",
-    }:
+    legacy_lines = [line.strip() for line in compact.splitlines() if line.strip()]
+    is_legacy_footer = (
+        compact == "✦ 𝐉𝐎𝐈𝐍 : @SKR_updates"
+        or (
+            legacy_lines
+            and legacy_lines[0] == "🔰𝐉𝐨𝐢𝐧 :- 🌟🌟"
+            and all(line == "@SKR_updates" for line in legacy_lines[1:])
+            and len(legacy_lines) <= 3
+        )
+    )
+    if is_legacy_footer:
         footer = "✦ **JOIN : @SKR_updates**"
     return "\n".join(render_markdown_bold(line) for line in footer.splitlines())
 
