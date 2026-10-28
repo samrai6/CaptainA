@@ -543,7 +543,7 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
     safe_movie_name = html.escape(movie_name)
     safe_link = html.escape("https://t.me/+2FzlW3vBPmI4Y2Nl", quote=True)
     title = f'<b><a href="{safe_link}">{safe_movie_name}</a></b>'
-    help_label = render_markdown_bold("**HOW TO OPEN LINK 🔗👇👇**")
+    help_label = '<b><a href="https://t.me/Hwotoopenlink">HOW TO OPEN LINK 🔗👇👇</a></b>'
     help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     divider = render_markdown_bold("**━━━━━━━━━━━━━━━━━━━━**")
     return (
@@ -715,7 +715,7 @@ def parse_text_submission(text: str):
 
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
     title = render_markdown_bold("🎬 **" + movie_name + "**")
-    help_text = render_markdown_bold("🔗 **HOW TO OPEN LINK 👇**")
+    help_text = '<b><a href="https://t.me/Hwotoopenlink">🔗 HOW TO OPEN LINK 👇</a></b>'
     help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
