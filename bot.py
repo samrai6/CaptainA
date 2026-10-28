@@ -676,18 +676,15 @@ def parse_postlink_caption(text: str):
 
 
 def make_postlink_caption(title: str, links: list, final_line: str, footer: str) -> str:
-    # Every separate title line is clickable; JOIN NOW is a separate inline button.
+    # Button Post keeps dump URLs out of the caption; JOIN NOW carries the first dump URL.
     invite_url = links[0]
     title_lines = [line.strip().replace("**", "") for line in title.splitlines() if line.strip()]
     linked_title = "\n".join(
         f'<b><a href="{html.escape(invite_url, quote=True)}">{html.escape(line)}</a></b>'
         for line in title_lines
     )
-    footer_lines = list(dict.fromkeys(
-        line.strip() for line in footer.replace("\\n", "\n").splitlines() if line.strip()
-    ))
-    footer_text = render_footer("\n".join(footer_lines))
-    return linked_title + "\n\n" + footer_text
+    join_line = literal_bold(final_line or "ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️")
+    return linked_title + "\n\n" + join_line
 
 
 def parse_caption(text: str):
@@ -1233,13 +1230,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ Postlink Mode: photo ಜೊತೆಗೆ captionನಲ್ಲಿ Movie title ಮತ್ತು Telegram invite link ಕಳುಹಿಸು.", parse_mode=None)
             return
         if settings["post_mode"] == "postlink_button":
-            caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
+            caption = make_postlink_caption(movie_name, postlink_links, "ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️", get_footer(user.id))
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]])
         else:
-            footer_text = render_footer(get_footer(user.id))
-            caption = literal_bold(movie_name) + "\n\n" + "\n".join(literal_bold(link) for link in postlink_links) + "\n\n" + footer_text
+            caption = literal_bold(movie_name) + "\n\n" + "\n".join(html.escape(link) for link in postlink_links) + "\n\n" + literal_bold("ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️")
             keyboard = None
-    else:
+        else:
         # If this photo was requested after a text post's poster search failed,
         # reuse that post's saved title and links; the user only needs to send a photo.
         manual = context.user_data.pop("pending_manual_photo", None)
@@ -1489,12 +1485,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
         postlink_links = (links + [links[-1]] * 3)[:3]
         if settings["post_mode"] == "postlink_button":
-            output = make_postlink_caption(movie_name, postlink_links, "Uploading Join Fast 👇👇", get_footer(user.id))
+            output = make_postlink_caption(movie_name, postlink_links, "ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️", get_footer(user.id))
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]])
         else:
-            output = literal_bold(movie_name) + "\n\n" + "\n".join(literal_bold(link) for link in postlink_links) + "\n\n" + render_footer(get_footer(user.id))
+            output = literal_bold(movie_name) + "\n\n" + "\n".join(html.escape(link) for link in postlink_links) + "\n\n" + literal_bold("ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️")
             keyboard = None
-    elif settings["post_mode"] == "multi":
+        elif settings["post_mode"] == "multi":
         quality_links = links[:4]
         output = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
         keyboard = make_multi_buttons(quality_links, settings)
