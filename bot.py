@@ -558,8 +558,7 @@ def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch
     return (
         f"{title}\n"
         f"{divider}\n\n"
-        f"{help_label}\n"
-        f"{help_url}\n"
+        f"{help_label} {help_url}\n"
         f"{render_footer(footer)}"
     )
 
