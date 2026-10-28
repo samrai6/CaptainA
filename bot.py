@@ -2130,6 +2130,7 @@ def main():
     app.add_handler(CommandHandler("removeshortlinktoken", removeshortlinktoken_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("shortlink", shortlink_command))
+    app.add_handler(CommandHandler("s", shortlink_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("mediainfo", mediainfo_command))
     app.add_handler(CommandHandler("normal", normal_mode))
