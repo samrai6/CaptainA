@@ -1224,8 +1224,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.photo or not user:
         return
     settings = get_user_settings(user.id)
-    if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
-        movie_name, postlink_links, final_line = parse_postlink_caption(message.caption or "")
+    postlink_mode = settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}
+    if postlink_mode:
+        movie_name, postlink_links, _final_line = parse_postlink_caption(message.caption or "")
         if not movie_name or not postlink_links:
             await message.reply_text("❌ Postlink Mode: photo ಜೊತೆಗೆ captionನಲ್ಲಿ Movie title ಮತ್ತು Telegram invite link ಕಳುಹಿಸು.", parse_mode=None)
             return
@@ -1235,9 +1236,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             caption = literal_bold(movie_name) + "\n\n" + "\n".join(html.escape(link) for link in postlink_links) + "\n\n" + literal_bold("ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️")
             keyboard = None
-        else:
-        # If this photo was requested after a text post's poster search failed,
-        # reuse that post's saved title and links; the user only needs to send a photo.
+    else:
         manual = context.user_data.pop("pending_manual_photo", None)
         if manual:
             movie_name, download_link, watch_link = manual
@@ -1246,29 +1245,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not movie_name or not download_link:
                 await message.reply_text("❌ Photo ಜೊತೆಗೆ caption ಹಾಕು: ಮೊದಲ ಸಾಲಿನಲ್ಲಿ Movie Name, ಮುಂದಿನ ಸಾಲಿನಲ್ಲಿ Shortlink, ನಂತರ Stream Link.", parse_mode=None)
                 return
-    if settings["post_mode"] in {"postlink", "postlink_normal", "postlink_button"}:
-        pass
-    elif settings["post_mode"] == "multi":
-        # Prefer the saved text-post data when this is the requested fallback photo.
-        manual_multi = context.user_data.pop("pending_manual_multi_photo", None)
-        if manual_multi:
-            movie_name, quality_links = manual_multi
+        if settings["post_mode"] == "multi":
+            manual_multi = context.user_data.pop("pending_manual_multi_photo", None)
+            if manual_multi:
+                movie_name, quality_links = manual_multi
+            else:
+                movie_name, quality_links = parse_multi_caption(message.caption or "")
+                if not movie_name or not quality_links:
+                    await message.reply_text("❌ First line Movie Name; next lines links in order 360p, 480p, 720p, 1080p.", parse_mode=None)
+                    return
+            caption = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
+            keyboard = make_multi_buttons(quality_links, settings)
+        elif settings["post_mode"] == "buttons":
+            caption = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
+            keyboard = make_buttons(download_link, watch_link, settings)
         else:
-            movie_name, quality_links = parse_multi_caption(message.caption or "")
-            if not movie_name or not quality_links:
-                await message.reply_text("❌ First line Movie Name; next lines links in order 360p, 480p, 720p, 1080p.", parse_mode=None)
-                return
-        caption = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
-        keyboard = make_multi_buttons(quality_links, settings)
-    elif settings["post_mode"] == "buttons":
-        caption = make_buttons_caption(movie_name, download_link, watch_link, get_button_footer(user.id))
-        keyboard = make_buttons(download_link, watch_link, settings)
-    else:
-        caption = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
-        keyboard = None
-    # Normalize literal newline markers and remove accidental empty parentheses before posting.
-    caption = caption.replace("\\n", "\n").replace("()", "")
-    # Apply the user's watermark to photos they upload directly, too.
+            caption = make_caption(movie_name, download_link, get_footer(user.id), watch_link=watch_link)
+            keyboard = None
+    caption = caption.replace("\\\\n", "\n").replace("()", "")
     pending_photo = {"type": "photo", "file_id": message.photo[-1].file_id, "caption": caption, "keyboard": keyboard}
     try:
         telegram_file = await context.bot.get_file(message.photo[-1].file_id)
@@ -1283,7 +1277,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pending_dump_post"] = pending_photo
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     await message.reply_text("📤 ಈ ಪೋಸ್ಟ್ ಅನ್ನು Dump Channel‌ಗೆ ಕಳುಹಿಸಬೇಕೇ?\n\nYES = ಕಳುಹಿಸು\nNO = Cancel", reply_markup=confirm_keyboard, parse_mode=None)
-
 
 
 SHORTXLINKS_API_URL = "https://shortxlinks.com/api"
@@ -1490,7 +1483,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             output = literal_bold(movie_name) + "\n\n" + "\n".join(html.escape(link) for link in postlink_links) + "\n\n" + literal_bold("ಬೇಗ ಬೇಗ ಜಾಯಿನ್ ಆಗಿ ❤️")
             keyboard = None
-        elif settings["post_mode"] == "multi":
+    elif settings["post_mode"] == "multi":
         quality_links = links[:4]
         output = make_multi_buttons_caption(movie_name, get_button_footer(user.id))
         keyboard = make_multi_buttons(quality_links, settings)
