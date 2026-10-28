@@ -1788,7 +1788,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("mode:"):
         mode = data.split(":", 1)[1]
-        if mode in {"normal", "buttons", "multi", "postlink"}:
+        if mode in {"normal", "buttons", "multi", "postlink", "postlink_normal", "postlink_button"}:
             save_post_mode(user.id, mode)
             if mode == "postlink":
                 keyboard = InlineKeyboardMarkup([
