@@ -690,17 +690,13 @@ def parse_text_submission(text: str):
 
 
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = " ".join(literal_bold(word) for word in movie_name.split())
+    title = literal_bold("🎬 " + movie_name)
+    help_text = literal_bold("🔗 𝐇𝐎𝐖 𝐓𝐎 𝐎𝐏𝐄𝐍 𝐋𝐈𝐍𝐊 👇")
+    help_url = literal_bold("https://t.me/Hwotoopenlink")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     footer_text = render_footer("\n".join(footer_lines))
-    return (
-        f"{title}\n"
-        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{literal_bold('📂 CHOOSE VIDEO QUALITY 👇')}\n"
-        f"{literal_bold('══════════════════════')}\n"
-        f"{footer_text}"
-    )
+    return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
 
 
 def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
@@ -713,19 +709,13 @@ def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
 
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = " ".join(literal_bold(word) for word in movie_name.split())
-    help_text = literal_bold("𝗛𝗢𝗪 𝗧𝗢 𝗢𝗣𝗘𝗡 𝗟𝗶𝗡𝗞🔗👇👇")
+    title = literal_bold("🎬 " + movie_name)
+    help_text = literal_bold("🔗 𝐇𝐎𝐖 𝐓𝐎 𝐎𝐏𝐄𝐍 𝐋𝐈𝐍𝐊 👇")
     help_url = literal_bold("https://t.me/Hwotoopenlink")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     footer_text = render_footer("\n".join(footer_lines))
-    return (
-        f"{title}\n"
-        f"{literal_bold('━━━━━━━━━━━━━━━━━━━━')}\n"
-        f"{help_text}\n"
-        f"{help_url}\n"
-        f"{footer_text}"
-    )
+    return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
 
 
 def make_buttons(download_link: str, watch_link: str, settings: dict) -> InlineKeyboardMarkup:
