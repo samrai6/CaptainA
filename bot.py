@@ -2133,6 +2133,7 @@ def main():
     app.add_handler(CommandHandler("s", shortlink_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("mediainfo", mediainfo_command))
+    app.add_handler(CommandHandler("m", mediainfo_command))
     app.add_handler(CommandHandler("normal", normal_mode))
     app.add_handler(CommandHandler("buttons", buttons_mode))
     app.add_handler(CommandHandler("buttonsettings", buttonsettings))
