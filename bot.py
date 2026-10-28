@@ -658,9 +658,13 @@ def find_imdb_poster(movie_name: str):
 def parse_postlink_caption(text: str):
     text = (text or "").replace("\\n", "\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    title = lines[0].replace("**", "").strip() if lines else ""
+    first_url_line = next((i for i, line in enumerate(lines) if URL_RE.search(line)), None)
+    if first_url_line is None or first_url_line == 0:
+        return None, [], "Uploading Join Fast 👇👇"
+    # Preserve separate title lines so each can be made independently clickable.
+    title = "\n".join(line.replace("**", "").strip() for line in lines[:first_url_line])
     links = []
-    for line in lines[1:]:
+    for line in lines[first_url_line:]:
         for match in URL_RE.finditer(line):
             link = match.group(0).strip("*").rstrip(".,);]*_")
             if link and link not in links:
@@ -672,14 +676,18 @@ def parse_postlink_caption(text: str):
 
 
 def make_postlink_caption(title: str, links: list, final_line: str, footer: str) -> str:
-    # Postlink mode keeps only the bold title, bold links, and the configured footer.
+    # Every separate title line is clickable; JOIN NOW is a separate inline button.
+    invite_url = links[0]
+    title_lines = [line.strip().replace("**", "") for line in title.splitlines() if line.strip()]
+    linked_title = "\\n".join(
+        f'<b><a href="{html.escape(invite_url, quote=True)}">{html.escape(line)}</a></b>'
+        for line in title_lines
+    )
     footer_lines = list(dict.fromkeys(
         line.strip() for line in footer.replace("\\n", "\n").splitlines() if line.strip()
     ))
     footer_text = render_footer("\n".join(footer_lines))
-    return literal_bold(title) + "\n\n" + "\n".join(
-        literal_bold(link) for link in links
-    ) + "\n\n" + footer_text
+    return linked_title + "\n\n" + footer_text
 
 
 def parse_caption(text: str):
@@ -1225,7 +1233,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ Postlink Mode: photo ಜೊತೆಗೆ captionನಲ್ಲಿ Movie title ಮತ್ತು Telegram invite link ಕಳುಹಿಸು.", parse_mode=None)
             return
         caption = make_postlink_caption(movie_name, postlink_links, final_line, get_footer(user.id))
-        keyboard = None
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔗 JOIN NOW", url=postlink_links[0])]
+        ])
     else:
         # If this photo was requested after a text post's poster search failed,
         # reuse that post's saved title and links; the user only needs to send a photo.
