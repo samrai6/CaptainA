@@ -667,14 +667,15 @@ def make_postlink_caption(title: str, links: list, final_line: str, footer: str)
 
 
 def parse_caption(text: str):
-    # Users sometimes paste captions containing literal \\n markers; convert them to real line breaks first.
+    # Accept a movie title on one or multiple lines; the first URL marks the end of the title.
     text = (text or "").replace("\\n", "\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < 2:
+    first_url_line = next((i for i, line in enumerate(lines) if URL_RE.search(line)), None)
+    if first_url_line is None or first_url_line == 0:
         return None, None, None
-    movie_name = lines[0]
+    movie_name = " ".join(lines[:first_url_line]).strip()
     links = []
-    for line in lines[1:]:
+    for line in lines[first_url_line:]:
         match = URL_RE.search(line)
         if match:
             link = match.group(0).strip("*").rstrip(".,);]*_")
@@ -686,16 +687,16 @@ def parse_caption(text: str):
     watch_link = links[1] if len(links) > 1 else links[0]
     return movie_name, download_link, watch_link
 
-
 def parse_multi_caption(text: str):
-    """Movie title followed by links ordered 360p, 480p, 720p, 1080p."""
+    """Accept one- or multi-line movie titles, then links ordered 360p, 480p, 720p, 1080p."""
     text = (text or "").replace("\\n", "\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < 2:
+    first_url_line = next((i for i, line in enumerate(lines) if URL_RE.search(line)), None)
+    if first_url_line is None or first_url_line == 0:
         return None, []
-    movie_name = lines[0]
+    movie_name = " ".join(lines[:first_url_line]).strip()
     links = []
-    for line in lines[1:]:
+    for line in lines[first_url_line:]:
         match = URL_RE.search(line)
         if match:
             link = match.group(0).strip("*").rstrip(".,);]*_")
@@ -703,24 +704,24 @@ def parse_multi_caption(text: str):
                 links.append(link)
     return (movie_name, links[:4]) if movie_name and links else (None, [])
 
-
 def parse_text_submission(text: str):
-    """First line is IMDb-only search title; second line starts the actual caption."""
+    """First line is the IMDb search title; one or more following lines form the caption title before URLs."""
     text = (text or "").replace("\\n", "\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) < 3:
+    first_url_line = next((i for i, line in enumerate(lines) if URL_RE.search(line)), None)
+    # Keep the existing format: IMDb search title on line one, caption title on line two (optionally continued).
+    if first_url_line is None or first_url_line < 2:
         return None, None, []
     imdb_title = lines[0]
-    caption_title = lines[1]
+    caption_title = " ".join(lines[1:first_url_line]).strip()
     links = []
-    for line in lines[2:]:
+    for line in lines[first_url_line:]:
         match = URL_RE.search(line)
         if match:
             link = match.group(0).strip("*").rstrip(".,);]*_")
             if link not in links:
                 links.append(link)
-    return (imdb_title, caption_title, links) if links else (None, None, [])
-
+    return (imdb_title, caption_title, links) if caption_title and links else (None, None, [])
 
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
     title = render_markdown_bold("🎬 **" + movie_name + "**")
