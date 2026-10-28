@@ -740,12 +740,16 @@ def parse_text_submission(text: str):
     return (imdb_title, caption_title, links) if caption_title and links else (None, None, [])
 
 def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = render_markdown_bold("🎬 **" + movie_name + "**")
-    help_text = '<b><a href="https://t.me/Hwotoopenlink">🔗 HOW TO OPEN LINK 👇</a></b>'
+    title = f'<b><a href="https://t.me/+2FzlW3vBPmI4Y2Nl">🎬 {html.escape(movie_name)}</a></b>'
+    help_text = render_markdown_bold("🔗 **HOW TO OPEN LINK 👇**")
     help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
-    footer_text = render_footer("\n".join(footer_lines))
+    # Keep every footer item plain text; the movie title is the only clickable caption text.
+    footer_text = "\n".join(
+        re.sub(r"\\*\\*(.*?)\\*\\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
+        for line in footer_lines
+    )
     return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
 
 
@@ -759,12 +763,16 @@ def make_multi_buttons(links: list, settings: dict) -> InlineKeyboardMarkup:
 
 
 def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, footer: str = DEFAULT_FOOTER) -> str:
-    title = render_markdown_bold("🎬 **" + movie_name + "**")
+    title = f'<b><a href="https://t.me/+2FzlW3vBPmI4Y2Nl">🎬 {html.escape(movie_name)}</a></b>'
     help_text = render_markdown_bold("🔗 **HOW TO OPEN LINK 👇**")
     help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
     footer = footer.replace("\\n", "\n")
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
-    footer_text = render_footer("\n".join(footer_lines))
+    # Keep every footer item plain text; the movie title is the only clickable caption text.
+    footer_text = "\n".join(
+        re.sub(r"\\*\\*(.*?)\\*\\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
+        for line in footer_lines
+    )
     return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
 
 
