@@ -526,7 +526,16 @@ def render_footer(footer: str) -> str:
     )
     if is_legacy_footer:
         footer = "✦ **JOIN : @SKR_updates**"
-    return "\n".join(render_markdown_bold(line) for line in footer.splitlines())
+    rendered_lines = []
+    for line in footer.splitlines():
+        rendered = render_markdown_bold(line)
+        # Make the SKR channel mention clickable while preserving bold formatting.
+        rendered = rendered.replace(
+            "@SKR_updates",
+            '<a href="https://t.me/SKR_updates">@SKR_updates</a>',
+        )
+        rendered_lines.append(rendered)
+    return "\n".join(rendered_lines)
 
 
 def literal_bold(text: str) -> str:
