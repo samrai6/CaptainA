@@ -747,7 +747,7 @@ def make_multi_buttons_caption(movie_name: str, footer: str = DEFAULT_FOOTER) ->
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     # Keep every footer item plain text; the movie title is the only clickable caption text.
     footer_text = "\n".join(
-        re.sub(r"\\*\\*(.*?)\\*\\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
+        re.sub(r"\*\*(.*?)\*\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
         for line in footer_lines
     )
     return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
@@ -770,7 +770,7 @@ def make_buttons_caption(movie_name: str, download_link: str, watch_link: str, f
     footer_lines = list(dict.fromkeys(line for line in footer.splitlines() if line.strip()))
     # Keep every footer item plain text; the movie title is the only clickable caption text.
     footer_text = "\n".join(
-        re.sub(r"\\*\\*(.*?)\\*\\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
+        re.sub(r"\*\*(.*?)\*\*", lambda match: "<b>" + match.group(1) + "</b>", html.escape(line))
         for line in footer_lines
     )
     return f"{title}\n\n{help_text}\n{help_url}\n\n{footer_text}"
