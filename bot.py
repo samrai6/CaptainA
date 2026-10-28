@@ -541,7 +541,7 @@ def literal_bold(text: str) -> str:
 def make_caption(movie_name: str, link: str, footer: str = DEFAULT_FOOTER, watch_link: str = None) -> str:
     """Build a clean Normal Mode caption; file links belong in buttons, not caption text."""
     safe_movie_name = html.escape(movie_name)
-    safe_link = html.escape(link.strip(), quote=True)
+    safe_link = html.escape("https://t.me/+2FzlW3vBPmI4Y2Nl", quote=True)
     title = f'<b><a href="{safe_link}">{safe_movie_name}</a></b>'
     help_label = render_markdown_bold("**HOW TO OPEN LINK 🔗👇👇**")
     help_url = render_markdown_bold("**https://t.me/Hwotoopenlink**")
