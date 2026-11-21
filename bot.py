@@ -1046,7 +1046,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         (r"\bYT[- ]?DLP\b", "YT-DLP"),
     ]
     source_tags = []
-    source_search_text = work + "\\n" + (raw_text if not is_mediainfo else "")
+    source_search_text = work + " " + (raw_text if not is_mediainfo else "")
     for pattern, tag in source_patterns:
         if re.search(pattern, source_search_text, re.IGNORECASE):
             source_tags.append(tag)
@@ -1061,7 +1061,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     video_text = video_section.group(1) if video_section else ""
     video_codec = None
     # Preserve the filename's codec when present; consult MediaInfo only if absent.
-    codec_search_text = work + "\\n" + (raw_text if not is_mediainfo else "")
+    codec_search_text = work + " " + (raw_text if not is_mediainfo else "")
     if re.search(r"\bAV1\b", codec_search_text, re.IGNORECASE):
         video_codec = "AV1"
     elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", codec_search_text, re.IGNORECASE):
@@ -1072,9 +1072,9 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         if re.search(r"\bAV1\b", video_text, re.IGNORECASE):
             video_codec = "AV1"
         elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", video_text, re.IGNORECASE):
-            video_codec = "x265"
+            video_codec = "H265"
         elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", video_text, re.IGNORECASE):
-            video_codec = "x264"
+            video_codec = "H264"
 
     # Audio codec/channels/bitrate: use filename details first; fill missing
     # details only from the MediaInfo Audio Tracks section.
