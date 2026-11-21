@@ -875,7 +875,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔁 Normal Mode", callback_data="mode:normal"), InlineKeyboardButton("🔘 Button Mode", callback_data="mode:buttons")],
         [InlineKeyboardButton("🎬 Multi Button Mode", callback_data="mode:multi")],
         [InlineKeyboardButton("🔗 Postlink Mode", callback_data="mode:postlink")],
-        [InlineKeyboardButton("🗃 Set Dump Channel ID", callback_data="settings:dump")],
+        [InlineKeyboardButton("🗃 Dumps", callback_data="dumps:menu")],
         [InlineKeyboardButton("🔧 Button Settings", callback_data="settings:buttons")],
         [InlineKeyboardButton("✍️ Edit Shared Footer", callback_data="settings:footer")],
         [InlineKeyboardButton("🖼️ Watermark Settings", callback_data="settings:watermark")],
@@ -1475,9 +1475,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not re.fullmatch(r"-?\d+", channel_id):
             await message.reply_text("❌ Channel ID numeric aagirabeku. Matte try maadi.", parse_mode=None)
             return
+        dump_action = context.user_data.pop("awaiting_dump_channel", "add")
         add_dump_channel(user.id, channel_id)
-        context.user_data.pop("awaiting_dump_channel", None)
-        await message.reply_text("✅ Dump Channel add aagide. /dumps ಮೂಲಕ list ನೋಡಬಹುದು. Channel‌ನಲ್ಲಿ bot admin aagirabeku.", parse_mode=None)
+        if dump_action == "set":
+            save_setting(user.id, "dump_channel_id", channel_id)
+            reply = "✅ Main Dump Channel set ಆಯಿತು."
+        else:
+            reply = "✅ Dump Channel add ಆಯಿತು."
+        await message.reply_text(reply + f"\\nಒಟ್ಟು Dumps: {len(get_dump_channels(user.id))}\\nChannel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು.", parse_mode=None)
         return
     imdb_title, movie_name, links = parse_text_submission(message.text)
     if not imdb_title or not movie_name or not links:
@@ -1799,9 +1804,53 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mode_name = {"normal": "Normal Mode", "buttons": "Button Mode", "multi": "Multi Button Mode", "postlink_normal": "Postlink Mode — Normal Post", "postlink_button": "Postlink Mode — Button Post"}[mode]
             await query.edit_message_text("✅ Mode changed to " + mode_name + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
-    if data == "settings:dump":
-        context.user_data["awaiting_dump_channel"] = True
-        await query.message.reply_text("Nimma Dump Channel ID ಕಳುಹಿಸು. Idu nimma account-ge maatra save aagutte; bere users tamma ID set maadabahudu. Channel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು.", parse_mode=None)
+    if data == "dumps:menu":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗃 Set Dump", callback_data="dumps:set"),
+             InlineKeyboardButton("➕ Add Dump", callback_data="dumps:add")],
+            [InlineKeyboardButton("🗑 Remove Dump", callback_data="dumps:remove")],
+            [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
+        ])
+        await query.edit_message_text("🗃 Dump Settings\\n\\nSet = Main Dump Channel\\nAdd = Add another Dump Channel\\nRemove = Select a channel by name.", reply_markup=keyboard, parse_mode=None)
+        return
+    if data in {"dumps:set", "dumps:add"}:
+        context.user_data["awaiting_dump_channel"] = "set" if data == "dumps:set" else "add"
+        action_text = "Main Dump Channel ID" if data == "dumps:set" else "New Dump Channel ID"
+        await query.edit_message_text(f"📢 {action_text} ಕಳುಹಿಸು. Channel‌ನಲ್ಲಿ bot admin ಆಗಿರಬೇಕು. ರದ್ದು ಮಾಡಲು /cancel ಬಳಸು.", parse_mode=None)
+        return
+    if data == "dumps:remove":
+        channels = get_dump_channels(user.id)
+        if not channels:
+            await query.edit_message_text("🗑 Remove ಮಾಡಲು Dump Channels ಇಲ್ಲ.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="dumps:menu")]]), parse_mode=None)
+            return
+        rows = []
+        for index, channel_id in enumerate(channels):
+            try:
+                chat = await context.bot.get_chat(channel_id)
+                channel_name = getattr(chat, "title", None) or "Unknown Channel"
+            except Exception:
+                logging.warning("Could not resolve dump channel name for removal: %s", channel_id, exc_info=True)
+                channel_name = "Name unavailable"
+            label = channel_name[:60]
+            rows.append([InlineKeyboardButton("🗑 " + label, callback_data=f"removedump:{index}")])
+        rows.append([InlineKeyboardButton("⬅️ Back", callback_data="dumps:menu")])
+        await query.edit_message_text("🗑 Remove Dump\\n\\nತೆಗೆದುಹಾಕಬೇಕಾದ Channel ಆಯ್ಕೆ ಮಾಡು:", reply_markup=InlineKeyboardMarkup(rows), parse_mode=None)
+        return
+    if data.startswith("removedump:"):
+        channels = get_dump_channels(user.id)
+        try:
+            index = int(data.split(":", 1)[1])
+            channel_id = channels[index]
+        except (ValueError, IndexError):
+            await query.edit_message_text("⚠️ Dump Channel ಸಿಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸು.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="dumps:menu")]]), parse_mode=None)
+            return
+        try:
+            chat = await context.bot.get_chat(channel_id)
+            channel_name = getattr(chat, "title", None) or "Selected Channel"
+        except Exception:
+            channel_name = "Selected Channel"
+        remove_dump_channel(user.id, channel_id)
+        await query.edit_message_text(f"✅ {channel_name} Dump listನಿಂದ remove ಆಯಿತು.\\nಉಳಿದ Dumps: {len(get_dump_channels(user.id))}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗃 Dumps Menu", callback_data="dumps:menu")]]), parse_mode=None)
         return
     if data == "settings:buttons":
         await query.message.reply_text("Button settings commands:\n/buttonsettings\n/setdownloadtext <name>\n/setwatchtext <name>\n/setupdatesbutton <name> | <link>", parse_mode=None)
