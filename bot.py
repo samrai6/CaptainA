@@ -1271,13 +1271,9 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
             or ""
         ).strip()
 
-    # Only a real MediaInfo message may fill missing filename details.
-    mediainfo_text = (
-        caption
-        if re.match(r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE)
-        else ""
-    )
-    formatted = build_mediainfo_filename(mediainfo_text, base_filename=filename)
+    # Check the file caption for explicit codec/source tags too; only a real
+    # MediaInfo header is parsed as structured MediaInfo inside the formatter.
+    formatted = build_mediainfo_filename(caption, base_filename=filename)
     if formatted:
         filename = formatted
 
