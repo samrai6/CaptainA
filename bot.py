@@ -970,6 +970,9 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         key = f"ZZDOTTEDINITIALTOKEN{len(dotted_initials)}ZZ"
         dotted_initials[key] = match.group(0)
         return key
+    # Keep the original stem for technical-tag detection before punctuation
+    # normalization (H.264/H.265 and E-AC-3 otherwise lose their separators).
+    original_stem = stem
     work = re.sub(r"\b(?:[A-Za-z]\.)+[A-Za-z]\b", keep_dotted_initials, stem)
     work = re.sub(r"[._]+", " ", work)
     for key, value in dotted_initials.items():
@@ -1014,8 +1017,18 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
 
     # Resolution is taken from the filename first, then an exact standard
     # pixel height reported by MediaInfo. Unknown heights are deliberately skipped.
-    quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)(?:p)?\b", work, re.IGNORECASE)
-    quality = quality_match.group(1) + "p" if quality_match else None
+    def normalize_height(height):
+        # Normalize only the explicitly agreed ranges and standard tiers.
+        if 240 <= height <= 359:
+            return "360p"
+        if 361 <= height <= 479:
+            return "480p"
+        if height in (360, 480, 540, 720, 1080, 1440, 2160):
+            return f"{height}p"
+        return None
+
+    quality_match = re.search(r"\b(\d{3,4})\s*p?\b", original_stem, re.IGNORECASE)
+    quality = normalize_height(int(quality_match.group(1))) if quality_match else None
     if not quality and mediainfo_text:
         resolution = re.search(
             r"(?:Height|Resolution)\s*:\s*(?:(\d{3,5})\s*pixels|(?:\d{3,5}\s*[x×]\s*)?(\d{3,5}))",
@@ -1024,8 +1037,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         )
         if resolution:
             height = int(resolution.group(1) or resolution.group(2))
-            if height in (360, 480, 540, 720, 1080, 1440, 2160):
-                quality = f"{height}p"
+            quality = normalize_height(height)
 
     # Source labels must be explicitly present in the filename; MediaInfo
     # cannot reliably establish a release source, so never infer one.
@@ -1061,12 +1073,12 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     video_text = video_section.group(1) if video_section else ""
     video_codec = None
     # Preserve the filename's codec when present; consult MediaInfo only if absent.
-    codec_search_text = work + " " + (raw_text if not is_mediainfo else "")
+    codec_search_text = original_stem + " " + (raw_text if not is_mediainfo else "")
     if re.search(r"\bAV1\b", codec_search_text, re.IGNORECASE):
         video_codec = "AV1"
-    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", codec_search_text, re.IGNORECASE):
+    elif re.search(r"\b(?:x265|H\.?\s?265|H265|HEVC)\b", codec_search_text, re.IGNORECASE):
         video_codec = "H265"
-    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", codec_search_text, re.IGNORECASE):
+    elif re.search(r"\b(?:x264|H\.?\s?264|H264|AVC)\b", codec_search_text, re.IGNORECASE):
         video_codec = "H264"
     elif video_text:
         if re.search(r"\bAV1\b", video_text, re.IGNORECASE):
@@ -1078,7 +1090,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
 
     # Audio codec/channels/bitrate: use filename details first; fill missing
     # details only from the MediaInfo Audio Tracks section.
-    audio_source = work + "\n" + audio_text
+    audio_source = original_stem + "\n" + work + "\n" + audio_text
     audio_codec_patterns = [
         (r"\bDTS[- ]HD\b", "DTS-HD"),
         (r"\b(?:E[- ]?AC[- ]?3|EAC3)\b", "EAC3"),
@@ -1129,7 +1141,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         r"\bpart\d+\b",
         r"\(?\s*RKN\s*\)?",
         r"\b\d{2,5}\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
-        r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
+        r"\b(?:HEVC|AV1|x264|x265|H\.?\s?264|H\.?\s?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
