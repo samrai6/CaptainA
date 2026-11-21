@@ -964,8 +964,16 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     if not ext:
         ext = ".mkv"
 
-    # Normalize separators for parsing while preserving the original file extension.
-    work = re.sub(r"[._]+", " ", stem)
+    # Preserve dotted initials/abbreviations such as O.M while normalizing other separators.
+    dotted_initials = {}
+    def keep_dotted_initials(match):
+        key = f"__DOTTED_INITIAL_{len(dotted_initials)}__"
+        dotted_initials[key] = match.group(0)
+        return key
+    work = re.sub(r"\b(?:[A-Za-z]\.)+[A-Za-z]\b", keep_dotted_initials, stem)
+    work = re.sub(r"[._]+", " ", work)
+    for key, value in dotted_initials.items():
+        work = work.replace(key, value)
     work = re.sub(r"\s*-\s*", " ", work)
     work = re.sub(r"\b([257])\s+([01])\b", r"\1.\2", work)
     work = re.sub(r"\s+", " ", work).strip()
@@ -1038,8 +1046,9 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         (r"\bYT[- ]?DLP\b", "YT-DLP"),
     ]
     source_tags = []
+    source_search_text = work + "\\n" + (raw_text if not is_mediainfo else "")
     for pattern, tag in source_patterns:
-        if re.search(pattern, work, re.IGNORECASE):
+        if re.search(pattern, source_search_text, re.IGNORECASE):
             source_tags.append(tag)
 
     # Video codec: explicit filename tag first, otherwise the MediaInfo Video
@@ -1052,12 +1061,13 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     video_text = video_section.group(1) if video_section else ""
     video_codec = None
     # Preserve the filename's codec when present; consult MediaInfo only if absent.
-    if re.search(r"\bAV1\b", work, re.IGNORECASE):
+    codec_search_text = work + "\\n" + (raw_text if not is_mediainfo else "")
+    if re.search(r"\bAV1\b", codec_search_text, re.IGNORECASE):
         video_codec = "AV1"
-    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", work, re.IGNORECASE):
-        video_codec = "x265"
-    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", work, re.IGNORECASE):
-        video_codec = "x264"
+    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", codec_search_text, re.IGNORECASE):
+        video_codec = "H265"
+    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", codec_search_text, re.IGNORECASE):
+        video_codec = "H264"
     elif video_text:
         if re.search(r"\bAV1\b", video_text, re.IGNORECASE):
             video_codec = "AV1"
