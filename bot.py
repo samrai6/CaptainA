@@ -461,6 +461,26 @@ def get_user_settings(user_id: int) -> dict:
     return settings
 
 
+def get_ask_before_send(user_id: int) -> bool:
+    """Ask before sending when enabled; default is Send All automatically."""
+    if _mongo_settings is not None:
+        row = _mongo_settings.find_one({"user_id": user_id}, {"ask_before_send": 1})
+        return bool(row.get("ask_before_send", False)) if row else False
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS send_preferences (user_id INTEGER PRIMARY KEY, ask_before_send INTEGER NOT NULL DEFAULT 0)")
+        row = conn.execute("SELECT ask_before_send FROM send_preferences WHERE user_id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def save_ask_before_send(user_id: int, enabled: bool):
+    if _mongo_settings is not None:
+        _mongo_settings.update_one({"user_id": user_id}, {"$set": {"ask_before_send": bool(enabled)}}, upsert=True)
+        return
+    with sqlite3.connect(FOOTER_DB_PATH) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS send_preferences (user_id INTEGER PRIMARY KEY, ask_before_send INTEGER NOT NULL DEFAULT 0)")
+        conn.execute("INSERT INTO send_preferences (user_id, ask_before_send) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET ask_before_send=excluded.ask_before_send", (user_id, int(bool(enabled))))
+
+
 def save_setting(user_id: int, key: str, value: str):
     allowed = set(DEFAULT_BUTTON_SETTINGS) | {"post_mode"}
     if key not in allowed:
@@ -1280,6 +1300,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         logging.warning("Could not watermark user-uploaded photo; keeping original photo", exc_info=True)
     context.user_data["pending_dump_post"] = pending_photo
+    if not get_ask_before_send(user.id):
+        result = await send_pending_to_all(context, user.id, pending_photo)
+        await message.reply_text(result, parse_mode=None)
+        return
     confirm_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"), InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no")]])
     confirm_text = (
         "📤 Postlink Button Post ಅನ್ನು ಎಲ್ಲಿ ಕಳುಹಿಸಬೇಕು?\n\n✅ YES = ಈಗಾಗಲೇ set ಮಾಡಿದ Dump Channel systemಗೆ ಕಳುಹಿಸು\n❌ NO = PMಗೆ ಕಳುಹಿಸು"
@@ -1562,12 +1586,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.warning("Poster candidate failed; trying the next result", exc_info=True)
         if watermarked is not None:
             context.user_data.pop("pending_poster_selection", None)
-            context.user_data["pending_dump_post"] = {
+            pending_post = {
                 "type": "photo",
                 "watermarked_poster": watermarked,
                 "caption": output,
                 "keyboard": keyboard,
             }
+            context.user_data["pending_dump_post"] = pending_post
+            if not get_ask_before_send(user.id):
+                result = await send_pending_to_all(context, user.id, pending_post)
+                await progress_message.edit_text(
+                    "✅ Poster processing complete!\n" + result,
+                    parse_mode=None,
+                )
+                return
             confirm_keyboard = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ YES — Dump", callback_data="dump:yes"),
                 InlineKeyboardButton("❌ NO — Cancel", callback_data="dump:no"),
@@ -1589,6 +1621,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📸 Photo ಮಾತ್ರ ಕಳುಹಿಸು — Movie Name ಮತ್ತು links ಅನ್ನು ನಿನ್ನ ಹಿಂದಿನ postನಿಂದಲೇ ತೆಗೆದುಕೊಳ್ಳುತ್ತೇನೆ. ಮತ್ತೆ name/link ಬರೆಯಬೇಕಾಗಿಲ್ಲ.",
         parse_mode=None,
     )
+
+async def send_pending_to_all(context: ContextTypes.DEFAULT_TYPE, user_id: int, pending: dict) -> str:
+    channels = get_dump_channels(user_id)
+    if not channels:
+        return "⚠️ Dump Channels add ಆಗಿಲ್ಲ. /start → 🗃 Dumps ಮೂಲಕ add ಮಾಡು."
+    successes, failures = [], []
+    for channel_id in channels:
+        try:
+            await deliver_pending_post(context, user_id, channel_id, pending)
+            successes.append(channel_id)
+        except Exception:
+            logging.exception("Failed to send post to dump channel %s", channel_id)
+            failures.append(channel_id)
+    context.user_data.pop("pending_dump_post", None)
+    result = f"✅ ಎಲ್ಲಾ Dumpsಗೆ ಕಳುಹಿಸಲಾಗಿದೆ: {len(successes)}/{len(channels)}."
+    if failures:
+        result += f"\n❌ Failed: {len(failures)} channel(s). Bot admin ಆಗಿದೆಯೇ ಪರಿಶೀಲಿಸು."
+    return result
+
 
 async def deliver_pending_post(context: ContextTypes.DEFAULT_TYPE, user_id: int, channel_id: str, pending: dict):
     if pending["type"] == "photo":
@@ -1805,13 +1856,31 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("✅ Mode changed to " + mode_name + ".\n/start ಮೂಲಕ settings ಮತ್ತೆ ತೆರೆಯಬಹುದು.")
         return
     if data == "dumps:menu":
+        ask_enabled = get_ask_before_send(user.id)
+        send_label = "📤 Send Method: Ask ON" if ask_enabled else "📤 Send Method: Send All (Default)"
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🗃 Set Dump", callback_data="dumps:set"),
              InlineKeyboardButton("➕ Add Dump", callback_data="dumps:add")],
             [InlineKeyboardButton("🗑 Remove Dump", callback_data="dumps:remove")],
+            [InlineKeyboardButton(send_label, callback_data="dumps:sendmethod")],
             [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
         ])
-        await query.edit_message_text("🗃 Dump Settings\n\nSet = Main Dump Channel\nAdd = Add another Dump Channel\nRemove = Select a channel by name.", reply_markup=keyboard, parse_mode=None)
+        await query.edit_message_text("🗃 Dump Settings\n\nSet = Main Dump Channel\nAdd = Add another Dump Channel\nRemove = Select a channel by name.\n\nSend All (Default): Post ಎಲ್ಲಾ Dump Channelsಗೆ ನೇರವಾಗಿ ಹೋಗುತ್ತದೆ.\nAsk ON: Post ಕಳುಹಿಸುವ ಮೊದಲು YES / NO ಕೇಳುತ್ತದೆ.", reply_markup=keyboard, parse_mode=None)
+        return
+    if data == "dumps:sendmethod":
+        enabled = not get_ask_before_send(user.id)
+        save_ask_before_send(user.id, enabled)
+        status = "Ask ON" if enabled else "Send All (Default)"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📤 Send Method: " + status, callback_data="dumps:sendmethod")],
+            [InlineKeyboardButton("⬅️ Back to Dumps", callback_data="dumps:menu")],
+        ])
+        await query.edit_message_text(
+            "✅ Send Method update ಆಯಿತು: " + status + "\n\n" +
+            ("ಈಗ ಪ್ರತಿ postಗೂ YES / NO confirmation ಬರುತ್ತದೆ." if enabled else "ಇನ್ನು ಮುಂದೆ ಎಲ್ಲಾ Dump Channelsಗೆ ನೇರವಾಗಿ ಕಳುಹಿಸುತ್ತದೆ."),
+            reply_markup=keyboard,
+            parse_mode=None,
+        )
         return
     if data in {"dumps:set", "dumps:add"}:
         context.user_data["awaiting_dump_channel"] = "set" if data == "dumps:set" else "add"
