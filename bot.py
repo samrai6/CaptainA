@@ -1006,7 +1006,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
 
     # Resolution is taken from the filename first, then an exact standard
     # pixel height reported by MediaInfo. Unknown heights are deliberately skipped.
-    quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", work, re.IGNORECASE)
+    quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)(?:p)?\b", work, re.IGNORECASE)
     quality = quality_match.group(1) + "p" if quality_match else None
     if not quality and mediainfo_text:
         resolution = re.search(
@@ -1113,7 +1113,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     # intentionally neither collected nor emitted.
     title = work
     remove_patterns = [
-        r"\b(?:360|480|540|720|1080|1440|2160)p\b",
+        r"\b(?:360|480|540|720|1080|1440|2160)(?:p)?\b",
         r"\bHQ\b|\bClean\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
         r"\bpart\d+\b",
@@ -1140,6 +1140,9 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     year = year_match.group(1) if year_match else None
     if year:
         title = re.sub(r"\b" + re.escape(year) + r"\b", " ", title)
+    # Removing a year inside parentheses can leave an empty "( )" in the title.
+    title = re.sub(r"\(\s*\)", " ", title)
+    title = re.sub(r"\s+", " ", title).strip(" ._-()")
 
     # Keep explicit release labels separate from the movie title.
     release_tag = "PreDVD" if re.search(r"\bPreDVD\b", work, re.IGNORECASE) else None
