@@ -1039,14 +1039,21 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         re.IGNORECASE,
     )
     video_text = video_section.group(1) if video_section else ""
-    video_source = work + "\n" + video_text
     video_codec = None
-    if re.search(r"\bAV1\b", video_source, re.IGNORECASE):
+    # Preserve the filename's codec when present; consult MediaInfo only if absent.
+    if re.search(r"\bAV1\b", work, re.IGNORECASE):
         video_codec = "AV1"
-    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", video_source, re.IGNORECASE):
+    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", work, re.IGNORECASE):
         video_codec = "x265"
-    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", video_source, re.IGNORECASE):
+    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", work, re.IGNORECASE):
         video_codec = "x264"
+    elif video_text:
+        if re.search(r"\bAV1\b", video_text, re.IGNORECASE):
+            video_codec = "AV1"
+        elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", video_text, re.IGNORECASE):
+            video_codec = "x265"
+        elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", video_text, re.IGNORECASE):
+            video_codec = "x264"
 
     # Audio codec/channels/bitrate: use filename details first; fill missing
     # details only from the MediaInfo Audio Tracks section.
@@ -1102,6 +1109,8 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
         r"\b(?:2\.0|5\.1|7\.1)\b",
+        r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
+        r"\bEng\s*Sub\b|\bEnglish subtitles?\b",
         r"\b(?:YT[- ]?DLP|NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
         r"\b(?:dubbed|dub)\b",
     ]
