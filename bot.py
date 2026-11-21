@@ -940,28 +940,26 @@ def extract_mediainfo_filename(raw_text: str):
     filename = clean_media_filename(filename)
     return filename or None
 
-def build_mediainfo_filename(raw_text: str, base_filename: str = None):
-    """Create a consistently ordered release filename using the filename and MediaInfo caption."""
+def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
+    """Build a filename from explicit filename tags, filling missing details from MediaInfo only."""
     raw_text = raw_text or ""
-    caption_filename = (
-        extract_mediainfo_filename(raw_text)
-        if re.match(r"^\s*MediaInfo\s+of\s+", raw_text, re.IGNORECASE)
-        else None
+    is_mediainfo = bool(re.search(r"^\s*MediaInfo\s+of\s+", raw_text, re.IGNORECASE))
+    filename = clean_media_filename(
+        base_filename or (extract_mediainfo_filename(raw_text) if is_mediainfo else None)
     )
-    filename = clean_media_filename(caption_filename or base_filename or extract_mediainfo_filename(raw_text))
     if not filename:
         return None
 
     stem, ext = os.path.splitext(filename)
     if not ext:
         ext = ".mkv"
-    # Normalize common release-name separators without damaging the movie title.
+
+    # Normalize separators for parsing while preserving the original file extension.
     work = re.sub(r"[._]+", " ", stem)
     work = re.sub(r"\s*-\s*", " ", work)
     work = re.sub(r"\s+", " ", work).strip()
-    combined = f"{stem}\n{raw_text}"
     lower_work = work.lower()
-    lower_all = combined.lower()
+    mediainfo_text = raw_text if is_mediainfo else ""
 
     languages = [
         ("Kannada", "Kan"), ("Malayalam", "Mal"), ("Tamil", "Tam"),
@@ -971,47 +969,48 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         ("Chinese", "Chi"), ("Spanish", "Spa"), ("French", "Fre"),
         ("German", "Ger"), ("Russian", "Rus"), ("Arabic", "Ara"),
     ]
-    language_tags = []
-    display_languages = []
-    audio_section = re.search(r"Audio Tracks([\s\S]*?)(?:Subtitle Tracks|Technical|$)", raw_text, re.IGNORECASE)
-    audio_text = audio_section.group(1) if audio_section else raw_text
-    for language, tag in languages:
-        # Include languages explicitly mentioned in the filename, audio tracks, or prose summary.
-        full_name_found = bool(re.search(r"\b" + re.escape(language) + r"\b", work, re.IGNORECASE) or re.search(r"\b" + re.escape(language) + r"\b", audio_text, re.IGNORECASE))
-        short_tag_found = bool(re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE))
-        if full_name_found or short_tag_found:
-            language_tags.append(tag)
-            display_languages.append(language if full_name_found else tag)
 
-    # Dub marker is kept only when it is explicitly present or inferable from a language-labelled filename.
+    # Keep language tags already present in the filename. Only use MediaInfo
+    # Audio Tracks to fill language information that the filename does not give.
+    display_languages = []
+    for language, tag in languages:
+        if re.search(r"\b" + re.escape(language) + r"\b", work, re.IGNORECASE):
+            display_languages.append(language)
+        elif re.search(r"\b" + re.escape(tag) + r"\b", work, re.IGNORECASE):
+            display_languages.append(tag)
+
+    audio_section = re.search(
+        r"Audio Tracks([\s\S]*?)(?:Subtitle Tracks|Text #\d+|Menu|General|$)",
+        mediainfo_text,
+        re.IGNORECASE,
+    )
+    audio_text = audio_section.group(1) if audio_section else ""
+
+    if not display_languages and audio_text:
+        for language, _tag in languages:
+            if re.search(r"\b" + re.escape(language) + r"\b", audio_text, re.IGNORECASE):
+                display_languages.append(language)
+
     dub = "Dub" if re.search(r"\b(?:dub|dubbed)\b", work, re.IGNORECASE) else None
 
-    # Keep HQ as a separate release tag after the title/year.
-    hq_tag = "HQ" if re.search(r"\bHQ\b", work, re.IGNORECASE) else None
+    # Resolution is taken from the filename first, then an exact standard
+    # pixel height reported by MediaInfo. Unknown heights are deliberately skipped.
     quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", work, re.IGNORECASE)
-    if not quality_match:
-        quality_match = re.search(r"\b(360|480|540|720|1080|1440|2160)p\b", raw_text, re.IGNORECASE)
     quality = quality_match.group(1) + "p" if quality_match else None
-    if not quality:
-        resolution = re.search(r"Resolution:\s*(\d{3,5})\s*[x×]\s*(\d{3,5})", raw_text, re.IGNORECASE)
+    if not quality and mediainfo_text:
+        resolution = re.search(
+            r"(?:Height|Resolution)\s*:\s*(?:(\d{3,5})\s*pixels|(?:\d{3,5}\s*[x×]\s*)?(\d{3,5}))",
+            mediainfo_text,
+            re.IGNORECASE,
+        )
         if resolution:
-            h = int(resolution.group(2))
-            quality = "360p" if h <= 400 else "480p" if h <= 600 else "720p" if h <= 800 else "1080p" if h <= 1100 else "1440p" if h <= 1600 else "2160p"
+            height = int(resolution.group(1) or resolution.group(2))
+            if height in (360, 480, 540, 720, 1080, 1440, 2160):
+                quality = f"{height}p"
 
-    # Preserve HEVC as its own release label; x265/x264/AV1 describe the video codec.
-    hevc = "HEVC" if re.search(r"\bHEVC\b|\bH\.?265\b|\bH265\b", lower_work) else None
-    video_codec = None
-    video_section = re.search(r"Video Stream([\s\S]*?)(?:Audio Tracks|Subtitle Tracks|Technical|$)", raw_text, re.IGNORECASE)
-    video_text = video_section.group(1) if video_section else raw_text
-    if re.search(r"\bAV1\b", lower_work) or re.search(r"\bAV1\b", video_text, re.IGNORECASE):
-        video_codec = "AV1"
-    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", lower_work) or re.search(r"\b(?:HEVC|H\.?265|H265|x265)\b", video_text, re.IGNORECASE):
-        video_codec = "x265"
-    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", lower_work) or re.search(r"\b(?:H\.?264|H264|AVC|x264)\b", video_text, re.IGNORECASE):
-        video_codec = "x264"
-
+    # Source labels must be explicitly present in the filename; MediaInfo
+    # cannot reliably establish a release source, so never infer one.
     source_patterns = [
-        # Actual release source first, then streaming provider tags.
         (r"\bWEB[- ]?DL\b|\bweb download\b", "WEB-DL"),
         (r"\bWEBRip\b|\bweb rip\b", "WEBRip"),
         (r"\bHDRip\b", "HDRip"),
@@ -1029,13 +1028,29 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     ]
     source_tags = []
     for pattern, tag in source_patterns:
-        if re.search(pattern, combined, re.IGNORECASE) and tag.lower() not in [x.lower() for x in source_tags]:
+        if re.search(pattern, work, re.IGNORECASE):
             source_tags.append(tag)
 
-    # Use only the primary audio codec; don't list every codec mentioned in a
-    # MediaInfo summary. Prefer the Audio Tracks section over title/prose text.
-    audio_tags = []
-    audio_source = audio_text if audio_section else combined
+    # Video codec: explicit filename tag first, otherwise the MediaInfo Video
+    # Stream section. Do not scan unrelated MediaInfo text.
+    video_section = re.search(
+        r"Video Stream([\s\S]*?)(?:Audio Tracks|Text #\d+|Subtitle Tracks|Menu|$)",
+        mediainfo_text,
+        re.IGNORECASE,
+    )
+    video_text = video_section.group(1) if video_section else ""
+    video_source = work + "\n" + video_text
+    video_codec = None
+    if re.search(r"\bAV1\b", video_source, re.IGNORECASE):
+        video_codec = "AV1"
+    elif re.search(r"\b(?:x265|H\.?265|H265|HEVC)\b", video_source, re.IGNORECASE):
+        video_codec = "x265"
+    elif re.search(r"\b(?:x264|H\.?264|H264|AVC)\b", video_source, re.IGNORECASE):
+        video_codec = "x264"
+
+    # Audio codec/channels/bitrate: use filename details first; fill missing
+    # details only from the MediaInfo Audio Tracks section.
+    audio_source = work + "\n" + audio_text
     audio_codec_patterns = [
         (r"\bDTS[- ]HD\b", "DTS-HD"),
         (r"\b(?:E[- ]?AC[- ]?3|EAC3)\b", "EAC3"),
@@ -1047,37 +1062,37 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         (r"\bOpus\b", "Opus"),
         (r"\bMP3\b", "MP3"),
     ]
+    audio_codec = None
     found_audio = []
     for pattern, tag in audio_codec_patterns:
         match = re.search(pattern, audio_source, re.IGNORECASE)
         if match:
             found_audio.append((match.start(), match, tag))
     if found_audio:
-        _, codec_match, codec_tag = min(found_audio, key=lambda item: item[0])
-        # Look for a channel layout near the primary codec in the same audio section.
-        nearby = audio_source[codec_match.start():codec_match.start() + 180]
-        channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", nearby)
-        if not channel_match:
-            channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", audio_source)
-        channel = channel_match.group(1) if channel_match else None
-        if channel:
-            audio_tags.append(f"{codec_tag}{channel}" if codec_tag == "DDP" else f"{codec_tag} {channel}")
-        else:
-            audio_tags.append(codec_tag)
+        audio_codec = min(found_audio, key=lambda item: item[0])[2]
 
-    # Normalize audio bitrate and place it after audio codec/channels.
-    bitrate_source = audio_source if audio_section else combined
-    bitrate_match = re.search(r"\b(\d{2,5})\s*(?:kbps|kb/s|kbit/s|kbits/s)\b", bitrate_source, re.IGNORECASE)
-    bitrate_tag = f"{bitrate_match.group(1)}kbps" if bitrate_match else None
+    channel = None
+    channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", work)
+    if channel_match:
+        channel = channel_match.group(1)
+    elif audio_text:
+        channel_match = re.search(r"\b(7\.1|5\.1|2\.0)\b", audio_text)
+        if channel_match:
+            channel = channel_match.group(1)
 
-    # Add subtitle labels only when explicitly present in the filename or MediaInfo caption.
-    subtitle_tags = []
-    if re.search(r"\b(?:ESub|Eng\s*Sub|EngSub|English subtitles?)\b", combined, re.IGNORECASE):
-        subtitle_tags.append("ESub")
-    # Do not infer KanSub or other subtitle tags from language track details.
-    subtitle_tags = list(dict.fromkeys(subtitle_tags))
+    bitrate = None
+    bitrate_match = re.search(r"\b(\d{2,5})\s*(?:kbps|kb/s|kbit/s|kbits/s)\b", work, re.IGNORECASE)
+    if not bitrate_match and audio_text:
+        bitrate_match = re.search(
+            r"\b(\d{2,5})\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
+            audio_text,
+            re.IGNORECASE,
+        )
+    if bitrate_match:
+        bitrate = f"{bitrate_match.group(1)}kbps"
 
-    # Remove technical metadata from the title area, then put year/title first.
+    # Strip only recognized technical tags from the title. Subtitle tags are
+    # intentionally neither collected nor emitted.
     title = work
     remove_patterns = [
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
@@ -1086,29 +1101,25 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
         r"\b\d{2,5}\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
-
         r"\b(?:2\.0|5\.1|7\.1)\b",
-        r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
-        r"\bEng\s*Sub\b|\bEnglish subtitles?\b",
         r"\b(?:YT[- ]?DLP|NF|Netflix|AMZN|Amazon|Prime Video|WEB[- ]?DL|WEBRip|HDRip|BluRay|BRRip|HDTC|HDCAM|DSNP|ATVP|ZEE5|JIO|JioCinema)\b",
+        r"\b(?:dubbed|dub)\b",
     ]
     for pattern in remove_patterns:
         title = re.sub(pattern, " ", title, flags=re.IGNORECASE)
     for language, tag in languages:
         title = re.sub(r"\b" + re.escape(language) + r"\b", " ", title, flags=re.IGNORECASE)
         title = re.sub(r"\b" + re.escape(tag) + r"\b", " ", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b(?:dubbed|dub)\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+", " ", title).strip(" ._-()")
 
-    # Prefer the readable title/year form when the filename uses dots or underscores.
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", work)
-    if year_match and not re.search(r"\(" + year_match.group(1) + r"\)", title):
+    if year_match:
         title = re.sub(r"\b" + year_match.group(1) + r"\b", " ", title)
         title = re.sub(r"\s+", " ", title).strip(" ._-()")
         title = f"{title} ({year_match.group(1)})".strip()
 
-    # Canonical order: Movie Name (Year), Language, Resolution, Source,
-    # Video Codec, Audio Codec/Channels, Subtitles. Do not include HQ.
+    # Fixed order: title/year, language, dub, resolution, source,
+    # video codec, audio codec, channels, bitrate. Missing values are skipped.
     ordered = []
     if title:
         ordered.append(title)
@@ -1120,15 +1131,16 @@ def build_mediainfo_filename(raw_text: str, base_filename: str = None):
     ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
-    ordered.extend(audio_tags)
-    if bitrate_tag:
-        ordered.append(bitrate_tag)
-    ordered.extend(subtitle_tags)
+    if audio_codec:
+        ordered.append(audio_codec)
+    if channel:
+        ordered.append(channel)
+    if bitrate:
+        ordered.append(bitrate)
 
-    # Deduplicate while preserving canonical order.
     final_tags = []
     for tag in ordered:
-        if tag and tag.lower() not in [x.lower() for x in final_tags]:
+        if tag and tag.lower() not in [item.lower() for item in final_tags]:
             final_tags.append(tag)
     return f"{' '.join(final_tags)}{ext}"
 
@@ -1191,7 +1203,7 @@ async def handle_mediainfo_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reply with a normalized filename, using the media caption/MediaInfo when available."""
+    """Reply with a normalized filename, using only the actual filename and explicit MediaInfo."""
     message = update.effective_message
     if not message:
         return
@@ -1203,8 +1215,6 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
     filename = getattr(media, "file_name", None) or "media_file"
     filename = clean_media_filename(filename)
 
-    # Telegram normally stores media text in message.caption. Also support
-    # a caption/text on a replied-to media message, for users who reply to a file.
     caption = (getattr(message, "caption", None) or "").strip()
     if not caption and message.reply_to_message:
         replied = message.reply_to_message
@@ -1214,19 +1224,16 @@ async def handle_media_filename(update: Update, context: ContextTypes.DEFAULT_TY
             or ""
         ).strip()
 
-    if caption:
-        caption_header = extract_mediainfo_filename(caption)
-        is_mediainfo_header = bool(
-            re.match(r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE)
-        )
-        # Use the complete filename from the caption's MediaInfo header when present.
-        # Otherwise preserve the uploaded filename and enrich it from caption details.
-        base_for_caption = caption_header if is_mediainfo_header and caption_header else filename
-        formatted = build_mediainfo_filename(caption, base_filename=base_for_caption)
-        if formatted:
-            filename = formatted
+    # Only a real MediaInfo message may fill missing filename details.
+    mediainfo_text = (
+        caption
+        if re.match(r"^\s*MediaInfo\s+of\s+", caption, re.IGNORECASE)
+        else ""
+    )
+    formatted = build_mediainfo_filename(mediainfo_text, base_filename=filename)
+    if formatted:
+        filename = formatted
 
-    # Send all four filename formats as separate bold Telegram messages.
     outputs = [
         f"/l1 -n {filename}",
         f"/l2 -n {filename}",
