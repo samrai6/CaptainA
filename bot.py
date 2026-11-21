@@ -957,6 +957,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     # Normalize separators for parsing while preserving the original file extension.
     work = re.sub(r"[._]+", " ", stem)
     work = re.sub(r"\s*-\s*", " ", work)
+    work = re.sub(r"\b([257])\s+([01])\b", r"\1.\2", work)
     work = re.sub(r"\s+", " ", work).strip()
     lower_work = work.lower()
     mediainfo_text = raw_text if is_mediainfo else ""
@@ -1011,6 +1012,12 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     # Source labels must be explicitly present in the filename; MediaInfo
     # cannot reliably establish a release source, so never infer one.
     source_patterns = [
+        (r"\bNF\b|\bNetflix\b", "NF"),
+        (r"\bAMZN\b|\bAmazon\b|\bPrime Video\b", "AMZN"),
+        (r"\bDSNP\b", "DSNP"),
+        (r"\bATVP\b", "ATVP"),
+        (r"\bZEE5\b", "ZEE5"),
+        (r"\bJIO\b|\bJioCinema\b", "JIO"),
         (r"\bWEB[- ]?DL\b|\bweb download\b", "WEB-DL"),
         (r"\bWEBRip\b|\bweb rip\b", "WEBRip"),
         (r"\bHDRip\b", "HDRip"),
@@ -1019,12 +1026,6 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         (r"\bHDTC\b", "HDTC"),
         (r"\bHDCAM\b", "HDCAM"),
         (r"\bYT[- ]?DLP\b", "YT-DLP"),
-        (r"\bNF\b|\bNetflix\b", "NF"),
-        (r"\bAMZN\b|\bAmazon\b|\bPrime Video\b", "AMZN"),
-        (r"\bDSNP\b", "DSNP"),
-        (r"\bATVP\b", "ATVP"),
-        (r"\bZEE5\b", "ZEE5"),
-        (r"\bJIO\b|\bJioCinema\b", "JIO"),
     ]
     source_tags = []
     for pattern, tag in source_patterns:
@@ -1120,6 +1121,8 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         title = re.sub(r"\b" + re.escape(language) + r"\b", " ", title, flags=re.IGNORECASE)
         title = re.sub(r"\b" + re.escape(tag) + r"\b", " ", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+", " ", title).strip(" ._-()")
+    # Drop a trailing standalone E subtitle marker without guessing other tokens.
+    title = re.sub(r"\s+E$", "", title, flags=re.IGNORECASE).strip(" ._-()")
 
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", work)
     if year_match:
