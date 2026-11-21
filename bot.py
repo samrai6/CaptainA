@@ -1811,7 +1811,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗑 Remove Dump", callback_data="dumps:remove")],
             [InlineKeyboardButton("⬅️ Back to Settings", callback_data="settings:back")],
         ])
-        await query.edit_message_text("🗃 Dump Settings\\n\\nSet = Main Dump Channel\\nAdd = Add another Dump Channel\\nRemove = Select a channel by name.", reply_markup=keyboard, parse_mode=None)
+        await query.edit_message_text("🗃 Dump Settings\n\nSet = Main Dump Channel\nAdd = Add another Dump Channel\nRemove = Select a channel by name.", reply_markup=keyboard, parse_mode=None)
         return
     if data in {"dumps:set", "dumps:add"}:
         context.user_data["awaiting_dump_channel"] = "set" if data == "dumps:set" else "add"
@@ -1834,7 +1834,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = channel_name[:60]
             rows.append([InlineKeyboardButton("🗑 " + label, callback_data=f"removedump:{index}")])
         rows.append([InlineKeyboardButton("⬅️ Back", callback_data="dumps:menu")])
-        await query.edit_message_text("🗑 Remove Dump\\n\\nತೆಗೆದುಹಾಕಬೇಕಾದ Channel ಆಯ್ಕೆ ಮಾಡು:", reply_markup=InlineKeyboardMarkup(rows), parse_mode=None)
+        await query.edit_message_text("🗑 Remove Dump\n\nತೆಗೆದುಹಾಕಬೇಕಾದ Channel ಆಯ್ಕೆ ಮಾಡು:", reply_markup=InlineKeyboardMarkup(rows), parse_mode=None)
         return
     if data.startswith("removedump:"):
         channels = get_dump_channels(user.id)
@@ -1850,7 +1850,7 @@ async def button_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             channel_name = "Selected Channel"
         remove_dump_channel(user.id, channel_id)
-        await query.edit_message_text(f"✅ {channel_name} Dump listನಿಂದ remove ಆಯಿತು.\\nಉಳಿದ Dumps: {len(get_dump_channels(user.id))}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗃 Dumps Menu", callback_data="dumps:menu")]]), parse_mode=None)
+        await query.edit_message_text(f"✅ {channel_name} Dump listನಿಂದ remove ಆಯಿತು.\nಉಳಿದ Dumps: {len(get_dump_channels(user.id))}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗃 Dumps Menu", callback_data="dumps:menu")]]), parse_mode=None)
         return
     if data == "settings:buttons":
         await query.message.reply_text("Button settings commands:\n/buttonsettings\n/setdownloadtext <name>\n/setwatchtext <name>\n/setupdatesbutton <name> | <link>", parse_mode=None)
