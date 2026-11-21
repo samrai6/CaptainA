@@ -1114,8 +1114,10 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     title = work
     remove_patterns = [
         r"\b(?:360|480|540|720|1080|1440|2160)p\b",
-        r"\bHQ\b",
+        r"\bHQ\b|\bClean\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
+        r"\bpart\d+\b",
+        r"\(?\s*RKN\s*\)?",
         r"\b\d{2,5}\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
         r"\b(?:HEVC|AV1|x264|x265|H\.?264|H\.?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
@@ -1135,21 +1137,31 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     title = re.sub(r"\s+E$", "", title, flags=re.IGNORECASE).strip(" ._-()")
 
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", work)
-    if year_match:
-        title = re.sub(r"\b" + year_match.group(1) + r"\b", " ", title)
-        title = re.sub(r"\s+", " ", title).strip(" ._-()")
-        title = f"{title} ({year_match.group(1)})".strip()
+    year = year_match.group(1) if year_match else None
+    if year:
+        title = re.sub(r"\b" + re.escape(year) + r"\b", " ", title)
 
-    # Fixed order: title/year, language, dub, resolution, source,
-    # video codec, audio codec, channels, bitrate. Missing values are skipped.
+    # Keep explicit release labels separate from the movie title.
+    release_tag = "PreDVD" if re.search(r"\bPreDVD\b", work, re.IGNORECASE) else None
+    title = re.sub(r"\bPreDVD\b", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bpart\d+\b", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\(?\s*RKN\s*\)?", " ", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip(" ._-()")
+
+    # Fixed order: title, resolution, year, language, release label,
+    # then remaining technical details when present.
     ordered = []
     if title:
         ordered.append(title)
-    ordered.extend(display_languages)
-    if dub:
-        ordered.append(dub)
     if quality:
         ordered.append(quality)
+    if year:
+        ordered.append(f"({year})")
+    ordered.extend(display_languages)
+    if release_tag:
+        ordered.append(release_tag)
+    if dub:
+        ordered.append(dub)
     ordered.extend(source_tags)
     if video_codec:
         ordered.append(video_codec)
