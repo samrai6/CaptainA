@@ -2120,6 +2120,30 @@ async def setupdatesbutton(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("✅ Updates button label and link saved separately from movie links.", parse_mode=None)
 
 
+PROPROTECTION_BLOCKED_TEXT = "Rᴇᴘᴏʀᴛs Bʟᴏᴄkᴇᴅ ʙʏ @ProProtectionBot"
+
+
+async def delete_protection_blocked_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete only ProProtectionBot blocked-report notices posted in channels."""
+    message = update.effective_message
+    if not message or message.chat.type != "channel":
+        return
+
+    message_text = message.text or message.caption or ""
+    if PROPROTECTION_BLOCKED_TEXT not in message_text:
+        return
+
+    try:
+        await message.delete()
+        logging.info("Deleted ProProtectionBot blocked-report notice from channel %s", message.chat.id)
+    except Exception:
+        logging.warning(
+            "Could not delete ProProtectionBot blocked-report notice from channel %s",
+            message.chat.id,
+            exc_info=True,
+        )
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -2173,6 +2197,7 @@ def main():
     app.add_handler(CommandHandler("setwatermark", setwatermark_command))
     app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.Regex(re.escape(PROPROTECTION_BLOCKED_TEXT)), delete_protection_blocked_message))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text), group=-1)
