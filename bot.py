@@ -967,7 +967,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     # Preserve dotted initials/abbreviations such as O.M while normalizing other separators.
     dotted_initials = {}
     def keep_dotted_initials(match):
-        key = f"__DOTTED_INITIAL_{len(dotted_initials)}__"
+        key = f"ZZDOTTEDINITIALTOKEN{len(dotted_initials)}ZZ"
         dotted_initials[key] = match.group(0)
         return key
     work = re.sub(r"\b(?:[A-Za-z]\.)+[A-Za-z]\b", keep_dotted_initials, stem)
