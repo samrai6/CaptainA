@@ -1027,8 +1027,14 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
             return f"{height}p"
         return None
 
-    quality_match = re.search(r"\b(\d{3,4})\s*p?\b", original_stem, re.IGNORECASE)
-    quality = normalize_height(int(quality_match.group(1))) if quality_match else None
+    quality_match = None
+    quality = None
+    for candidate in re.finditer(r"\b(\d{3,4})\s*p?\b", original_stem, re.IGNORECASE):
+        candidate_quality = normalize_height(int(candidate.group(1)))
+        if candidate_quality:
+            quality_match = candidate
+            quality = candidate_quality
+            break
     if not quality and mediainfo_text:
         resolution = re.search(
             r"(?:Height|Resolution)\s*:\s*(?:(\d{3,5})\s*pixels|(?:\d{3,5}\s*[x×]\s*)?(\d{3,5}))",
@@ -1135,7 +1141,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
     # intentionally neither collected nor emitted.
     title = work
     remove_patterns = [
-        r"\b(?:360|480|540|720|1080|1440|2160)(?:p)?\b",
+        r"\b(?:2[4-9]\d|3\d\d|4[0-7]\d|480|540|720|1080|1440|2160)(?:p)?\b",
         r"\bHQ\b|\bClean\b",
         r"\b\d+(?:\.\d+)?\s*(?:GB|GiB|MB|MiB)\b",
         r"\bpart\d+\b",
