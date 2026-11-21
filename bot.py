@@ -23,6 +23,16 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+OWNER_ID = 1315244338
+
+
+async def notify_owner_on_startup(app: Application):
+    try:
+        await app.bot.send_message(chat_id=OWNER_ID, text="I'm alive sir")
+        logging.info("Startup notification sent to owner %s", OWNER_ID)
+    except Exception:
+        logging.exception("Could not send startup notification to owner %s", OWNER_ID)
+
 HELP_TEXT = (
     "📸 Photo + caption format:\n\n"
     "Text-only format (poster auto-search):\n"
@@ -2307,7 +2317,7 @@ def main():
         raise RuntimeError("BOT_TOKEN environment variable is missing.")
     init_footer_db()
     start_health_server()
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(notify_owner_on_startup).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("adddump", adddump_command))
     app.add_handler(CommandHandler("dumps", dumps_command))
