@@ -1147,7 +1147,7 @@ def build_mediainfo_filename(raw_text: str = "", base_filename: str = None):
         r"\bpart\d+\b",
         r"\(?\s*RKN\s*\)?",
         r"\b\d{2,5}\s*(?:kbps|kb/s|kbit/s|kbits/s)\b",
-        r"\b(?:HEVC|AV1|x264|x265|H\.?\s?264|H\.?\s?265|H264|H265|AVC)\b",
+        r"\b(?:HEVC|AV1|x264|x265|H26|H\.?\s?264|H\.?\s?265|H264|H265|AVC)\b",
         r"\b(?:AAC|AC3|AC-3|EAC3|E-AC-3|DDP|DD\s*\+|DTS-HD|DTS|FLAC|Opus|MP3)\b",
         r"\b(?:2\.0|5\.1|7\.1)\b",
         r"\b(?:ESub|KanSub|MalSub|TamSub|TelSub|HinSub|EngSub|BenSub|MarSub|PunSub|UrdSub|JpnSub|KorSub|ChiSub|SpaSub|FreSub|GerSub|RusSub|AraSub)\b",
