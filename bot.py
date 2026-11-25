@@ -94,6 +94,23 @@ async def random_group_reaction(update: Update, context: ContextTypes.DEFAULT_TY
             "REACTION FAILED | chat_id=%s | message_id=%s | chat_type=%s | error=%s",
             message.chat_id, message.message_id, message.chat.type, exc, exc_info=True
         )
+        # Match Naruto09: try a stable fallback reaction if the random one fails.
+        try:
+            await context.bot.set_message_reaction(
+                chat_id=message.chat_id,
+                message_id=message.message_id,
+                reaction=[ReactionTypeEmoji(emoji="⚡️")],
+                is_big=True,
+            )
+            logging.info(
+                "REACTION FALLBACK OK | chat_id=%s | message_id=%s | chat_type=%s",
+                message.chat_id, message.message_id, message.chat.type
+            )
+        except Exception:
+            logging.warning(
+                "REACTION FALLBACK FAILED | chat_id=%s | message_id=%s | chat_type=%s",
+                message.chat_id, message.message_id, message.chat.type, exc_info=True
+            )
 
 
 async def notify_owner_on_startup(app: Application):
@@ -2457,7 +2474,7 @@ def main():
     app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, delete_protection_blocked_message))
-    app.add_handler(MessageHandler(random_group_reaction, filters.ChatType.PRIVATE | filters.ChatType.CHANNEL), group=1)
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE | filters.ChatType.CHANNEL, random_group_reaction), group=1)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text), group=-1)
