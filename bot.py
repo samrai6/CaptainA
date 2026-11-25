@@ -75,7 +75,7 @@ async def random_group_reaction(update: Update, context: ContextTypes.DEFAULT_TY
             is_big=False,
         )
     except Exception as exc:
-        logging.debug("Could not react in chat %s: %s", message.chat_id, exc)
+        logging.warning("REACTION FAILED | chat_id=%s | message_id=%s | chat_type=%s | error=%s", message.chat_id, message.message_id, message.chat.type, exc, exc_info=True)
 
 
 async def notify_owner_on_startup(app: Application):
