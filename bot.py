@@ -62,7 +62,7 @@ REACTIONS = [
 
 async def random_group_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
-    if not message or not message.chat or message.chat.type not in ("group", "supergroup", "channel"):
+    if not message or not message.chat or message.chat.type not in ("private", "channel"):
         return
     if message.from_user and message.from_user.is_bot:
         return
@@ -2439,7 +2439,7 @@ def main():
     app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, delete_protection_blocked_message))
-    app.add_handler(MessageHandler(random_group_reaction, filters.ChatType.GROUPS | filters.ChatType.CHANNEL), group=1)
+    app.add_handler(MessageHandler(random_group_reaction, filters.ChatType.PRIVATE | filters.ChatType.CHANNEL), group=1)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text), group=-1)
