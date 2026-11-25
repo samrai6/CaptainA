@@ -5,13 +5,14 @@ import json
 import logging
 import os
 import re
+import random
 import sqlite3
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters, Update, ReactionTypeEmoji
 from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
@@ -24,6 +25,57 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 OWNER_ID = 1315244338
+
+
+
+
+REACTIONS = [
+    "🤝",
+    "🦚",
+    "🦋",
+    "😇",
+    "🤗",
+    "😍",
+    "👍",
+    "🎅",
+    "🥰",
+    "🤩",
+    "😱",
+    "🤣",
+    "😘",
+    "👏",
+    "😛",
+    "😈",
+    "🎉",
+    "⚡️",
+    "🫡",
+    "🤓",
+    "😎",
+    "🏆",
+    "🔥",
+    "🤭",
+    "🆒",
+    "👻",
+    "😁"
+]
+
+
+async def random_group_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message or not message.chat or message.chat.type not in ("group", "supergroup", "channel"):
+        return
+    if message.from_user and message.from_user.is_bot:
+        return
+    emoji = random.choice(REACTIONS)
+    try:
+        await context.bot.set_message_reaction(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
+            is_big=False,
+        )
+    except Exception as exc:
+        logging.debug("Could not react in chat %s: %s", message.chat_id, exc)
 
 
 async def notify_owner_on_startup(app: Application):
@@ -2387,6 +2439,7 @@ def main():
     app.add_handler(CommandHandler("setwatermarksize", setwatermarksize_command))
     app.add_handler(CommandHandler("setwatermarkposition", setwatermarkposition_command))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, delete_protection_blocked_message))
+    app.add_handler(MessageHandler(random_group_reaction, filters.ChatType.GROUPS | filters.ChatType.CHANNEL), group=1)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.ANIMATION, handle_media_filename))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mediainfo_text), group=-1)
