@@ -60,22 +60,40 @@ REACTIONS = [
 ]
 
 
+# Match Naruto09 auto-reaction behavior: enabled for every incoming PM
+# from a user and every incoming channel post.
+EMOJI_MODE = True
+
+
 async def random_group_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
-    if not message or not message.chat or message.chat.type not in ("private", "channel"):
+    if not EMOJI_MODE or not message or not message.chat:
         return
-    if message.from_user and message.from_user.is_bot:
+
+    # Naruto09 requires a sender for private messages, but reacts to channel
+    # posts regardless of whether Telegram provides a from_user field.
+    if message.chat.type == "private" and not message.from_user:
         return
+    if message.chat.type not in ("private", "channel"):
+        return
+
     emoji = random.choice(REACTIONS)
     try:
         await context.bot.set_message_reaction(
             chat_id=message.chat_id,
             message_id=message.message_id,
             reaction=[ReactionTypeEmoji(emoji=emoji)],
-            is_big=False,
+            is_big=True,
+        )
+        logging.info(
+            "REACTION OK | chat_id=%s | message_id=%s | chat_type=%s | emoji=%s",
+            message.chat_id, message.message_id, message.chat.type, emoji
         )
     except Exception as exc:
-        logging.warning("REACTION FAILED | chat_id=%s | message_id=%s | chat_type=%s | error=%s", message.chat_id, message.message_id, message.chat.type, exc, exc_info=True)
+        logging.warning(
+            "REACTION FAILED | chat_id=%s | message_id=%s | chat_type=%s | error=%s",
+            message.chat_id, message.message_id, message.chat.type, exc, exc_info=True
+        )
 
 
 async def notify_owner_on_startup(app: Application):
